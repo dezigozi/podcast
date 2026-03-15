@@ -1,4 +1,5 @@
 // メインWorker — APIエンドポイント + フロントエンドUI + Cron Trigger
+// Queueの代わりに ctx.waitUntil() でバックグラウンド生成を実行
 
 import { PERSONAS, PERSONA_IDS } from "./personas";
 import { collectNews, buildNewsPrompt } from "./collector";
@@ -9,7 +10,6 @@ export interface Env {
   OPENAI_API_KEY: string;
   PODCAST_BUCKET: R2Bucket;
   PODCAST_KV: KVNamespace;
-  PODCAST_QUEUE: Queue<GenerateJob>;
 }
 
 export interface GenerateJob {
@@ -37,7 +37,7 @@ export interface JobStatus {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     // ルーティング
@@ -45,7 +45,7 @@ export default {
       return serveUI();
     }
     if (url.pathname === "/api/generate" && request.method === "POST") {
-      return handleGenerate(request, env);
+      return handleGenerate(request, env, ctx);
     }
     if (url.pathname.startsWith("/api/status/")) {
       const jobId = url.pathname.split("/api/status/")[1];
@@ -62,16 +62,8 @@ export default {
     return new Response("Not Found", { status: 404 });
   },
 
-  // Queue Consumer — 非同期ポッドキャスト生成処理
-  async queue(batch: MessageBatch<GenerateJob>, env: Env): Promise<void> {
-    for (const message of batch.messages) {
-      await processJob(message.body, env);
-      message.ack();
-    }
-  },
-
   // Cron Trigger — 毎週月曜 09:00 JST に全キャスター自動生成
-  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const jobId = `cron-${Date.now()}`;
     const job: GenerateJob = {
       jobId,
@@ -79,14 +71,20 @@ export default {
       noAudio: false,
       createdAt: new Date().toISOString(),
     };
-    await env.PODCAST_KV.put(
-      `job:${jobId}`,
-      JSON.stringify({ status: "queued", persona: "all", createdAt: job.createdAt }),
-      { expirationTtl: 86400 * 7 }
-    );
-    await env.PODCAST_QUEUE.send(job);
+    const queuedStatus: JobStatus = {
+      status: "queued",
+      persona: "all",
+      createdAt: job.createdAt,
+    };
+    await env.PODCAST_KV.put(`job:${jobId}`, JSON.stringify(queuedStatus), {
+      expirationTtl: 86400 * 7,
+    });
+    // バックグラウンドで生成処理を実行
+    ctx.waitUntil(processJob(job, env));
   },
 };
+
+
 
 // ─── Queue処理（ポッドキャスト生成パイプライン）───────────────────────────
 async function processJob(job: GenerateJob, env: Env): Promise<void> {
@@ -167,7 +165,7 @@ async function processJob(job: GenerateJob, env: Env): Promise<void> {
 
 
 // POST /api/generate
-async function handleGenerate(request: Request, env: Env): Promise<Response> {
+async function handleGenerate(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   let body: { persona?: string; no_audio?: boolean } = {};
   try {
     body = await request.json();
@@ -201,8 +199,8 @@ async function handleGenerate(request: Request, env: Env): Promise<Response> {
     expirationTtl: 86400 * 7,
   });
 
-  // Queueにジョブを送信（非同期）
-  await env.PODCAST_QUEUE.send(job);
+  // バックグラウンドで生成処理を実行（ctx.waitUntil でレスポンス後も継続）
+  ctx.waitUntil(processJob(job, env));
 
   return jsonResponse({ jobId, status: "queued", message: "生成ジョブを受け付けました。数分後に完了します。" });
 }

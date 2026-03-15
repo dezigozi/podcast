@@ -3,16 +3,6 @@ main = "src/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
-[[queues.producers]]
-queue = "podcast-generate-queue"
-binding = "PODCAST_QUEUE"
-
-[[queues.consumers]]
-queue = "podcast-generate-queue"
-max_batch_size = 1
-max_batch_timeout = 1
-max_retries = 2
-
 [[r2_buckets]]
 binding = "PODCAST_BUCKET"
 bucket_name = "podcast-audio"
@@ -25,4 +15,4 @@ id = "772501f2f8b54e1fad5608c67433fa3c"
 crons = ["0 0 * * 1"]  # 毎週月曜 09:00 JST (UTC 00:00)
 
 [vars]
-PODCAST_BASE_URL = "https://podcast-generator.workers.dev"
+PODCAST_BASE_URL = "https://podcast.workers.dev"
