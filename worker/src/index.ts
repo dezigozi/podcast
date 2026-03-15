@@ -1,13 +1,39 @@
 // メインWorker — APIエンドポイント + フロントエンドUI + Cron Trigger
 
 import { PERSONAS, PERSONA_IDS } from "./personas";
-import type { GenerateJob, JobStatus } from "./queue-consumer";
+import { collectNews, buildNewsPrompt } from "./collector";
+import { generateScript } from "./script-generator";
+import { generateAudio } from "./audio-generator";
 
 export interface Env {
   OPENAI_API_KEY: string;
   PODCAST_BUCKET: R2Bucket;
   PODCAST_KV: KVNamespace;
   PODCAST_QUEUE: Queue<GenerateJob>;
+}
+
+export interface GenerateJob {
+  jobId: string;
+  persona: string;
+  noAudio?: boolean;
+  createdAt: string;
+}
+
+export interface JobStatus {
+  status: "queued" | "running" | "done" | "error";
+  persona: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+  results?: Array<{
+    personaId: string;
+    personaName: string;
+    scriptKey: string;
+    audioKey?: string;
+    audioUrl?: string;
+    scriptLength: number;
+  }>;
 }
 
 export default {
@@ -36,6 +62,14 @@ export default {
     return new Response("Not Found", { status: 404 });
   },
 
+  // Queue Consumer — 非同期ポッドキャスト生成処理
+  async queue(batch: MessageBatch<GenerateJob>, env: Env): Promise<void> {
+    for (const message of batch.messages) {
+      await processJob(message.body, env);
+      message.ack();
+    }
+  },
+
   // Cron Trigger — 毎週月曜 09:00 JST に全キャスター自動生成
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     const jobId = `cron-${Date.now()}`;
@@ -53,6 +87,84 @@ export default {
     await env.PODCAST_QUEUE.send(job);
   },
 };
+
+// ─── Queue処理（ポッドキャスト生成パイプライン）───────────────────────────
+async function processJob(job: GenerateJob, env: Env): Promise<void> {
+  const dateStr = new Date().toISOString().split("T")[0];
+
+  const runningStatus: JobStatus = {
+    status: "running",
+    persona: job.persona,
+    createdAt: job.createdAt,
+    startedAt: new Date().toISOString(),
+  };
+  await env.PODCAST_KV.put(`job:${job.jobId}`, JSON.stringify(runningStatus), { expirationTtl: 86400 * 3 });
+
+  try {
+    const newsItems = await collectNews();
+    const newsPrompt = buildNewsPrompt(newsItems);
+
+    const personaIds = job.persona === "all" ? [...PERSONA_IDS] : [job.persona];
+    const results: NonNullable<JobStatus["results"]> = [];
+
+    for (const personaId of personaIds) {
+      const persona = PERSONAS[personaId];
+      if (!persona) continue;
+
+      const script = await generateScript(newsPrompt, persona, env.OPENAI_API_KEY);
+
+      const scriptKey = `${dateStr}/${personaId}_script.txt`;
+      await env.PODCAST_BUCKET.put(scriptKey, script, {
+        httpMetadata: { contentType: "text/plain; charset=utf-8" },
+      });
+
+      const result: NonNullable<JobStatus["results"]>[number] = {
+        personaId,
+        personaName: persona.name,
+        scriptKey,
+        scriptLength: script.length,
+      };
+
+      if (!job.noAudio) {
+        const audioBytes = await generateAudio(script, persona.voice, env.OPENAI_API_KEY);
+        const audioKey = `${dateStr}/${personaId}.mp3`;
+        await env.PODCAST_BUCKET.put(audioKey, audioBytes, {
+          httpMetadata: { contentType: "audio/mpeg" },
+        });
+        result.audioKey = audioKey;
+        result.audioUrl = `/audio/${audioKey}`;
+      }
+      results.push(result);
+    }
+
+    const doneStatus: JobStatus = {
+      status: "done",
+      persona: job.persona,
+      createdAt: job.createdAt,
+      startedAt: runningStatus.startedAt,
+      completedAt: new Date().toISOString(),
+      results,
+    };
+    await env.PODCAST_KV.put(`job:${job.jobId}`, JSON.stringify(doneStatus), { expirationTtl: 86400 * 7 });
+
+    const allEpisodesJson = await env.PODCAST_KV.get("episodes:all");
+    const allEpisodes = allEpisodesJson ? JSON.parse(allEpisodesJson) : [];
+    allEpisodes.unshift({ jobId: job.jobId, date: dateStr, results });
+    await env.PODCAST_KV.put("episodes:all", JSON.stringify(allEpisodes.slice(0, 50)));
+  } catch (err) {
+    const errorStatus: JobStatus = {
+      status: "error",
+      persona: job.persona,
+      createdAt: job.createdAt,
+      startedAt: runningStatus.startedAt,
+      error: String(err),
+    };
+    await env.PODCAST_KV.put(`job:${job.jobId}`, JSON.stringify(errorStatus), { expirationTtl: 86400 });
+    throw err;
+  }
+}
+
+
 
 // POST /api/generate
 async function handleGenerate(request: Request, env: Env): Promise<Response> {
