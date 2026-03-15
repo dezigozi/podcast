@@ -1,0 +1,12 @@
+[
+  {
+    "title": "西村 哲の知のわんこそば — 2026-03-15",
+    "description": "哲学・文化評論キャスターが今週のホットトピックスを解説",
+    "persona_id": "philosopher",
+    "persona_name": "西村 哲",
+    "script_path": "output/2026-03-15/philosopher_script.txt",
+    "audio_path": null,
+    "audio_url": "http://localhost:8000/output/2026-03-15/philosopher.mp3",
+    "audio_size": 0
+  }
+]

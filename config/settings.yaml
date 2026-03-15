@@ -1,0 +1,74 @@
+podcast:
+  title: "知のわんこそば"
+  description: "毎週、世の中のホットトピックスをAIが解説するポッドキャスト。中道・革新・保守・テック・哲学、5人のAIキャスターがそれぞれの視点で語る。"
+  language: "ja"
+  max_topics: 25  # 収集するニュースの最大件数
+
+news:
+  days_back: 7     # 何日前までのニュースを収集するか
+  use_hackernews: true
+  hackernews_stories: 30  # HNから取得するストーリー数
+
+  rss_feeds:
+    # 日本語ニュース
+    - url: "https://www3.nhk.or.jp/rss/news/cat0.xml"
+      category: "japan"
+      language: "ja"
+      label: "NHK ニュース"
+
+    - url: "https://feeds.bbci.co.uk/japanese/rss.xml"
+      category: "international"
+      language: "ja"
+      label: "BBC News Japan"
+
+    # 英語テクノロジー
+    - url: "https://news.ycombinator.com/rss"
+      category: "tech"
+      language: "en"
+      label: "Hacker News"
+
+    - url: "https://www.technologyreview.com/feed/"
+      category: "tech"
+      language: "en"
+      label: "MIT Technology Review"
+
+    - url: "https://www.wired.com/feed/rss"
+      category: "tech"
+      language: "en"
+      label: "WIRED"
+
+    # 英語国際ニュース
+    - url: "https://feeds.reuters.com/reuters/topNews"
+      category: "international"
+      language: "en"
+      label: "Reuters Top News"
+
+    - url: "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"
+      category: "tech"
+      language: "en"
+      label: "NYT Technology"
+
+    - url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
+      category: "international"
+      language: "en"
+      label: "NYT World"
+
+    # 科学・学術
+    - url: "https://www.nature.com/nature.rss"
+      category: "science"
+      language: "en"
+      label: "Nature"
+
+    - url: "https://feeds.feedburner.com/sciencedaily"
+      category: "science"
+      language: "en"
+      label: "Science Daily"
+
+llm:
+  model: "gpt-4o"
+  max_tokens: 4096
+  temperature: 0.85  # 少し高めで創造性を引き出す
+
+tts:
+  model: "tts-1"
+  speed: 1.0  # 1.0 = 通常速度、1.1-1.2 にするとやや速め
