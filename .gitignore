@@ -1,0 +1,20 @@
+# 環境変数（APIキー等）
+.env
+
+# 生成済みMP3・スクリプト
+output/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+
+# Node / Cloudflare Workers
+node_modules/
+worker/node_modules/
+.wrangler/
+worker/.wrangler/
+dist/
+worker/dist/
+*.tsbuildinfo

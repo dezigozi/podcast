@@ -1,0 +1,28 @@
+name = "podcast-generator"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[queues.producers]]
+queue = "podcast-generate-queue"
+binding = "PODCAST_QUEUE"
+
+[[queues.consumers]]
+queue = "podcast-generate-queue"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 2
+
+[[r2_buckets]]
+binding = "PODCAST_BUCKET"
+bucket_name = "podcast-audio"
+
+[[kv_namespaces]]
+binding = "PODCAST_KV"
+id = "REPLACE_WITH_KV_ID"
+
+[triggers]
+crons = ["0 0 * * 1"]  # 毎週月曜 09:00 JST (UTC 00:00)
+
+[vars]
+PODCAST_BASE_URL = "https://podcast-generator.workers.dev"

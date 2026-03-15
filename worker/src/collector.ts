@@ -1,0 +1,220 @@
+// ニュース収集モジュール — src/collector.py をTypeScriptに移植
+
+import { RSS_FEEDS, PODCAST_CONFIG, CATEGORY_LABELS, type RssFeed } from "./rss-feeds";
+
+export interface NewsItem {
+  title: string;
+  description: string;
+  url: string;
+  source: string;
+  publishedAt: Date;
+  category: string;
+  language: string;
+}
+
+export async function collectNews(): Promise<NewsItem[]> {
+  const items: NewsItem[] = [];
+  const cutoff = new Date(Date.now() - PODCAST_CONFIG.daysBack * 24 * 60 * 60 * 1000);
+
+  // RSS フィードを並行取得
+  const rssResults = await Promise.allSettled(
+    RSS_FEEDS.map((feed) => fetchRss(feed))
+  );
+  for (const result of rssResults) {
+    if (result.status === "fulfilled") {
+      items.push(...result.value);
+    }
+  }
+
+  // Hacker News
+  try {
+    const hnItems = await fetchHackerNews(PODCAST_CONFIG.hackernewsStories);
+    items.push(...hnItems);
+  } catch {
+    // HN取得失敗は無視
+  }
+
+  // 期間フィルタ
+  const recent = items.filter((i) => i.publishedAt >= cutoff);
+
+  // 重複除去
+  const deduped = deduplicate(recent);
+
+  // 時系列降順
+  deduped.sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+
+  return deduped.slice(0, PODCAST_CONFIG.maxTopics);
+}
+
+// RSSフィードを取得してNewsItemリストを返す
+async function fetchRss(feed: RssFeed): Promise<NewsItem[]> {
+  const resp = await fetch(feed.url, {
+    headers: { "User-Agent": "PodcastBot/1.0" },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!resp.ok) return [];
+
+  const xml = await resp.text();
+  return parseRss(xml, feed);
+}
+
+function parseRss(xml: string, feed: RssFeed): NewsItem[] {
+  const items: NewsItem[] = [];
+
+  // <item> タグを抽出
+  const itemMatches = xml.match(/<item[\s>][\s\S]*?<\/item>/gi) ?? [];
+
+  for (const itemXml of itemMatches.slice(0, 15)) {
+    const title = extractTag(itemXml, "title");
+    if (!title) continue;
+
+    const description = cleanHtml(
+      extractTag(itemXml, "description") ?? extractTag(itemXml, "summary") ?? ""
+    ).slice(0, 400);
+
+    const url =
+      extractTag(itemXml, "link") ??
+      extractAttr(itemXml, "enclosure", "url") ??
+      "";
+
+    const pubDate =
+      extractTag(itemXml, "pubDate") ??
+      extractTag(itemXml, "published") ??
+      extractTag(itemXml, "dc:date") ??
+      "";
+
+    const publishedAt = pubDate ? new Date(pubDate) : new Date();
+
+    items.push({
+      title: title.trim(),
+      description,
+      url,
+      source: feed.label,
+      publishedAt: isNaN(publishedAt.getTime()) ? new Date() : publishedAt,
+      category: feed.category,
+      language: feed.language,
+    });
+  }
+
+  return items;
+}
+
+interface HNStory {
+  id: number;
+  type: string;
+  title: string;
+  url?: string;
+  text?: string;
+  score?: number;
+  descendants?: number;
+  time?: number;
+}
+
+// Hacker News API からトップストーリーを取得
+async function fetchHackerNews(n: number): Promise<NewsItem[]> {
+  const idsResp = await fetch(
+    "https://hacker-news.firebaseio.com/v0/topstories.json",
+    { signal: AbortSignal.timeout(8000) }
+  );
+  const ids: number[] = await idsResp.json();
+  const targetIds = ids.slice(0, n);
+
+  const storyResults = await Promise.allSettled(
+    targetIds.map((id) =>
+      fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, {
+        signal: AbortSignal.timeout(5000),
+      }).then((r) => r.json() as Promise<HNStory>)
+    )
+  );
+
+  const items: NewsItem[] = [];
+  for (const result of storyResults) {
+    if (result.status !== "fulfilled") continue;
+    const story = result.value;
+    if (!story || story.type !== "story" || !story.title) continue;
+
+    const score = story.score ?? 0;
+    const comments = story.descendants ?? 0;
+    const description = cleanHtml(story.text ?? `Score: ${score} | Comments: ${comments}`).slice(0, 400);
+
+    items.push({
+      title: story.title,
+      description,
+      url: story.url ?? `https://news.ycombinator.com/item?id=${story.id}`,
+      source: "Hacker News",
+      publishedAt: new Date((story.time ?? Date.now() / 1000) * 1000),
+      category: "tech",
+      language: "en",
+    });
+  }
+
+  return items;
+}
+
+// ユーティリティ
+function extractTag(xml: string, tag: string): string | null {
+  const patterns = [
+    new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>`, "i"),
+    new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"),
+  ];
+  for (const re of patterns) {
+    const m = xml.match(re);
+    if (m) return m[1].trim();
+  }
+  return null;
+}
+
+function extractAttr(xml: string, tag: string, attr: string): string | null {
+  const re = new RegExp(`<${tag}[^>]*${attr}="([^"]*)"`, "i");
+  const m = xml.match(re);
+  return m ? m[1] : null;
+}
+
+function cleanHtml(text: string): string {
+  return text
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function deduplicate(items: NewsItem[]): NewsItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.title.slice(0, 30).toLowerCase().replace(/\s+/g, "");
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// ニュースをカテゴリ別にまとめてプロンプト用テキストに変換
+export function buildNewsPrompt(items: NewsItem[]): string {
+  const byCategory: Record<string, NewsItem[]> = {};
+  for (const item of items) {
+    (byCategory[item.category] ??= []).push(item);
+  }
+
+  const lines: string[] = [
+    "今週のニュースリストです。以下を参考に、今週のエピソードを作成してください。",
+    "（すべてを取り上げる必要はありません。最も興味深いものを自由に選んでください）",
+  ];
+
+  for (const [category, catItems] of Object.entries(byCategory)) {
+    const label = CATEGORY_LABELS[category] ?? category;
+    lines.push("", label, "─".repeat(30));
+    for (const item of catItems.slice(0, 8)) {
+      const langNote = item.language === "en" ? "（英語記事）" : "";
+      lines.push(`・${item.title}${langNote}`);
+      if (item.description) lines.push(`  → ${item.description.slice(0, 200)}`);
+      lines.push(`  出典: ${item.source}`);
+    }
+  }
+
+  lines.push("", "", "それでは、エピソードのスクリプトを作成してください。");
+  return lines.join("\n");
+}
