@@ -1,5 +1,7 @@
 # 環境変数（APIキー等）
 .env
+.dev.vars
+worker/.dev.vars
 
 # 生成済みMP3・スクリプト
 output/
