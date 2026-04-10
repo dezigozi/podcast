@@ -11,8 +11,19 @@ bucket_name = "podcast-audio"
 binding = "PODCAST_KV"
 id = "772501f2f8b54e1fad5608c67433fa3c"
 
+# キュー: 長時間の生成処理用（Worker 30秒制限を回避）
+[[queues.producers]]
+queue = "podcast-generate"
+binding = "PODCAST_QUEUE"
+
+[[queues.consumers]]
+queue = "podcast-generate"
+max_batch_size = 1
+max_batch_timeout = 5
+max_retries = 3
+
 [triggers]
-crons = ["0 0 * * 1"]  # 毎週月曜 09:00 JST (UTC 00:00)
+crons = ["0 0 * * 1"] # 毎週月曜 09:00 JST (UTC 00:00)
 
 [vars]
 PODCAST_BASE_URL = "https://podcast.workers.dev"

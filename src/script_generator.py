@@ -21,14 +21,20 @@ class ScriptGenerator:
         self.llm_cfg = settings.get("llm", {})
         self.personas = personas
 
-    def generate(self, items: List[NewsItem], persona_id: str) -> str:
+    def generate(
+        self,
+        items: List[NewsItem],
+        persona_id: str,
+        *,
+        exclusive_assignment: bool = False,
+    ) -> str:
         """指定ペルソナで今週のポッドキャストスクリプトを生成して返す"""
         persona = self.personas.get(persona_id)
         if not persona:
             raise ValueError(f"ペルソナが見つかりません: {persona_id}")
 
-        system_prompt = self._build_system_prompt(persona)
-        user_prompt = self._build_user_prompt(items)
+        system_prompt = self._build_system_prompt(persona, exclusive_assignment)
+        user_prompt = self._build_user_prompt(items, exclusive_assignment)
 
         model = self.llm_cfg.get("model", "gpt-4o")
         logger.info(f"スクリプト生成中: {persona['name']} / モデル: {model}")
@@ -49,7 +55,18 @@ class ScriptGenerator:
     # Prompt builders
     # ------------------------------------------------------------------
 
-    def _build_system_prompt(self, persona: dict) -> str:
+    def _build_system_prompt(self, persona: dict, exclusive: bool) -> str:
+        exclusive_block = ""
+        if exclusive:
+            exclusive_block = """
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+【週次シリーズの掟：題材の分担】
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+今回渡されるニュースリストは「あなた担当の題材」に限定されています。他の4名のキャスターは別のニュースを担当します。
+・リストにない出来事をメインの論点にしないでください。
+・同一週に他キャスターと同じニュース・同一事件を主トピックにしないでください。
+
+"""
         return f"""あなたは{persona["name"]}（{persona["title"]}）です。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -68,7 +85,7 @@ class ScriptGenerator:
 
 【シグネチャームーブ（得意技）】
 {persona["signature_move"]}
-
+{exclusive_block}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 【エピソードの構成】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -111,9 +128,24 @@ class ScriptGenerator:
 - 自分のスタンスを体現しつつ、独断的すぎず知的好奇心を刺激すること
 """
 
-    def _build_user_prompt(self, items: List[NewsItem]) -> str:
-        lines = ["今週のニュースリストです。以下を参考に、今週のエピソードを作成してください。\n"]
-        lines.append("（すべてを取り上げる必要はありません。最も興味深いものを自由に選んでください）\n")
+    def _build_user_prompt(self, items: List[NewsItem], exclusive: bool) -> str:
+        lines = []
+        if exclusive:
+            lines.extend(
+                [
+                    "【担当割当トピック】同一天に収録される他キャスターと題材が被らないよう、あなた専用に振り分けられたニュースだけをリストしています。",
+                    "・このリストに含まれるニュースだけを、本編の主要トピックとして取り上げてください（イントロのひと言の比喩として他を触れてもよいが、本題は割当分のみ）。",
+                    "・リスト外の「今週の大きな出来事」に便乗した重複解説はしないでください。",
+                    "",
+                ]
+            )
+        lines.append("今週のニュースリストです。以下を参考に、今週のエピソードを作成してください。\n")
+        if exclusive:
+            lines.append(
+                "（上記のルールに従い、このリストの中から3〜4件程度を選び、深く語ってください。件数が少ない場合はリスト内のすべてを扱ってください）\n"
+            )
+        else:
+            lines.append("（すべてを取り上げる必要はありません。最も興味深いものを自由に選んでください）\n")
 
         by_category: Dict[str, List[NewsItem]] = {}
         for item in items:

@@ -11,7 +11,7 @@ import requests
 import feedparser
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,21 @@ CATEGORY_LABELS = {
     "science": "🔭 科学",
     "general": "📰 一般",
 }
+
+
+def partition_news_among_personas(
+    items: List[NewsItem],
+    persona_ids: Sequence[str],
+) -> Dict[str, List[NewsItem]]:
+    """複数キャスターが同週のネタで被らないよう、ニュースをラウンドロビンで割り当てる。"""
+    buckets: Dict[str, List[NewsItem]] = {pid: [] for pid in persona_ids}
+    if not persona_ids:
+        return buckets
+    n = len(persona_ids)
+    for i, item in enumerate(items):
+        pid = persona_ids[i % n]
+        buckets[pid].append(item)
+    return buckets
 
 
 @dataclass

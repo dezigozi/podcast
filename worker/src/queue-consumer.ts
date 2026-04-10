@@ -1,6 +1,6 @@
 // Queue Consumer Worker — 非同期ポッドキャスト生成処理
 
-import { collectNews, buildNewsPrompt } from "./collector";
+import { collectNews, buildNewsPrompt, partitionNewsAmongPersonas } from "./collector";
 import { generateScript } from "./script-generator";
 import { generateAudio } from "./audio-generator";
 import { PERSONAS, PERSONA_IDS } from "./personas";
@@ -60,13 +60,14 @@ async function processJob(job: GenerateJob, env: Env): Promise<void> {
   await kv.put(`job:${job.jobId}`, JSON.stringify(runningStatus), { expirationTtl: 86400 * 3 });
 
   try {
-    // ニュース収集
     const newsItems = await collectNews();
-    const newsPrompt = buildNewsPrompt(newsItems);
 
-    // 対象ペルソナを決定
     const personaIds =
       job.persona === "all" ? [...PERSONA_IDS] : [job.persona];
+    const exclusiveTopics = personaIds.length > 1;
+    const itemsByPersona = exclusiveTopics
+      ? partitionNewsAmongPersonas(newsItems, personaIds)
+      : null;
 
     const results: JobStatus["results"] = [];
 
@@ -74,8 +75,11 @@ async function processJob(job: GenerateJob, env: Env): Promise<void> {
       const persona = PERSONAS[personaId];
       if (!persona) continue;
 
-      // スクリプト生成
-      const script = await generateScript(newsPrompt, persona, env.OPENAI_API_KEY);
+      const itemsForPersona = itemsByPersona?.[personaId] ?? newsItems;
+      const newsPrompt = buildNewsPrompt(itemsForPersona, {
+        exclusiveAssignment: exclusiveTopics,
+      });
+      const script = await generateScript(newsPrompt, persona, env.OPENAI_API_KEY, exclusiveTopics);
 
       // スクリプトをR2に保存
       const scriptKey = `${dateStr}/${personaId}_script.txt`;

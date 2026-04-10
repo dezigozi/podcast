@@ -1,8 +1,8 @@
 // メインWorker — APIエンドポイント + フロントエンドUI + Cron Trigger
-// Queueの代わりに ctx.waitUntil() でバックグラウンド生成を実行
+// Queue で長時間の生成処理を実行（Worker 30秒制限を回避）
 
 import { PERSONAS, PERSONA_IDS } from "./personas";
-import { collectNews, buildNewsPrompt } from "./collector";
+import { collectNews, buildNewsPrompt, partitionNewsAmongPersonas } from "./collector";
 import { generateScript } from "./script-generator";
 import { generateAudio } from "./audio-generator";
 
@@ -10,6 +10,7 @@ export interface Env {
   OPENAI_API_KEY: string;
   PODCAST_BUCKET: R2Bucket;
   PODCAST_KV: KVNamespace;
+  PODCAST_QUEUE: Queue;
 }
 
 export interface GenerateJob {
@@ -36,23 +37,33 @@ export interface JobStatus {
   }>;
 }
 
+/** KV `episodes:all` の1要素 */
+export interface EpisodeEntry {
+  jobId: string;
+  date: string;
+  results: JobStatus["results"];
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // ルーティング
     if (url.pathname === "/" || url.pathname === "") {
       return serveUI();
     }
     if (url.pathname === "/api/generate" && request.method === "POST") {
-      return handleGenerate(request, env, ctx);
+      return handleGenerate(request, env);
     }
     if (url.pathname.startsWith("/api/status/")) {
       const jobId = url.pathname.split("/api/status/")[1];
       return handleStatus(jobId, env);
     }
-    if (url.pathname === "/api/episodes") {
+    if (url.pathname === "/api/episodes" && request.method === "GET") {
       return handleEpisodes(env);
+    }
+    if (url.pathname.startsWith("/api/episodes/") && request.method === "DELETE") {
+      const jobId = decodeURIComponent(url.pathname.slice("/api/episodes/".length));
+      return handleDeleteEpisode(jobId, env);
     }
     if (url.pathname.startsWith("/audio/")) {
       const key = url.pathname.replace("/audio/", "");
@@ -62,7 +73,6 @@ export default {
     return new Response("Not Found", { status: 404 });
   },
 
-  // Cron Trigger — 毎週月曜 09:00 JST に全キャスター自動生成
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const jobId = `cron-${Date.now()}`;
     const job: GenerateJob = {
@@ -79,12 +89,20 @@ export default {
     await env.PODCAST_KV.put(`job:${jobId}`, JSON.stringify(queuedStatus), {
       expirationTtl: 86400 * 7,
     });
-    // バックグラウンドで生成処理を実行
-    ctx.waitUntil(processJob(job, env));
+    await env.PODCAST_QUEUE.send(job);
+  },
+
+  async queue(batch: MessageBatch, env: Env): Promise<void> {
+    for (const message of batch.messages) {
+      try {
+        await processJob(message.body as GenerateJob, env);
+        message.ack();
+      } catch (err) {
+        message.retry();
+      }
+    }
   },
 };
-
-
 
 // ─── Queue処理（ポッドキャスト生成パイプライン）───────────────────────────
 async function processJob(job: GenerateJob, env: Env): Promise<void> {
@@ -100,16 +118,24 @@ async function processJob(job: GenerateJob, env: Env): Promise<void> {
 
   try {
     const newsItems = await collectNews();
-    const newsPrompt = buildNewsPrompt(newsItems);
 
     const personaIds = job.persona === "all" ? [...PERSONA_IDS] : [job.persona];
+    const exclusiveTopics = personaIds.length > 1;
+    const itemsByPersona = exclusiveTopics
+      ? partitionNewsAmongPersonas(newsItems, personaIds)
+      : null;
+
     const results: NonNullable<JobStatus["results"]> = [];
 
     for (const personaId of personaIds) {
       const persona = PERSONAS[personaId];
       if (!persona) continue;
 
-      const script = await generateScript(newsPrompt, persona, env.OPENAI_API_KEY);
+      const itemsForPersona = itemsByPersona?.[personaId] ?? newsItems;
+      const newsPrompt = buildNewsPrompt(itemsForPersona, {
+        exclusiveAssignment: exclusiveTopics,
+      });
+      const script = await generateScript(newsPrompt, persona, env.OPENAI_API_KEY, exclusiveTopics);
 
       const scriptKey = `${dateStr}/${personaId}_script.txt`;
       await env.PODCAST_BUCKET.put(scriptKey, script, {
@@ -146,7 +172,7 @@ async function processJob(job: GenerateJob, env: Env): Promise<void> {
     await env.PODCAST_KV.put(`job:${job.jobId}`, JSON.stringify(doneStatus), { expirationTtl: 86400 * 7 });
 
     const allEpisodesJson = await env.PODCAST_KV.get("episodes:all");
-    const allEpisodes = allEpisodesJson ? JSON.parse(allEpisodesJson) : [];
+    const allEpisodes: EpisodeEntry[] = allEpisodesJson ? JSON.parse(allEpisodesJson) : [];
     allEpisodes.unshift({ jobId: job.jobId, date: dateStr, results });
     await env.PODCAST_KV.put("episodes:all", JSON.stringify(allEpisodes.slice(0, 50)));
   } catch (err) {
@@ -162,10 +188,8 @@ async function processJob(job: GenerateJob, env: Env): Promise<void> {
   }
 }
 
-
-
 // POST /api/generate
-async function handleGenerate(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+async function handleGenerate(request: Request, env: Env): Promise<Response> {
   let body: { persona?: string; no_audio?: boolean } = {};
   try {
     body = await request.json();
@@ -176,8 +200,7 @@ async function handleGenerate(request: Request, env: Env, ctx: ExecutionContext)
   const persona = body.persona ?? "all";
   const noAudio = body.no_audio ?? false;
 
-  // バリデーション
-  if (persona !== "all" && !PERSONA_IDS.includes(persona as typeof PERSONA_IDS[number])) {
+  if (persona !== "all" && !PERSONA_IDS.includes(persona as (typeof PERSONA_IDS)[number])) {
     return jsonResponse({ error: `不明なペルソナID: ${persona}` }, 400);
   }
 
@@ -189,7 +212,6 @@ async function handleGenerate(request: Request, env: Env, ctx: ExecutionContext)
     createdAt: new Date().toISOString(),
   };
 
-  // KVにキューステータスを保存
   const queuedStatus: JobStatus = {
     status: "queued",
     persona,
@@ -199,8 +221,7 @@ async function handleGenerate(request: Request, env: Env, ctx: ExecutionContext)
     expirationTtl: 86400 * 7,
   });
 
-  // バックグラウンドで生成処理を実行（ctx.waitUntil でレスポンス後も継続）
-  ctx.waitUntil(processJob(job, env));
+  await env.PODCAST_QUEUE.send(job);
 
   return jsonResponse({ jobId, status: "queued", message: "生成ジョブを受け付けました。数分後に完了します。" });
 }
@@ -216,8 +237,30 @@ async function handleStatus(jobId: string, env: Env): Promise<Response> {
 // GET /api/episodes
 async function handleEpisodes(env: Env): Promise<Response> {
   const data = await env.PODCAST_KV.get("episodes:all");
-  const episodes = data ? JSON.parse(data) : [];
+  const episodes: EpisodeEntry[] = data ? JSON.parse(data) : [];
   return jsonResponse({ episodes });
+}
+
+// DELETE /api/episodes/:jobId — 一覧から外し、R2 の音声・スクリプトも削除
+async function handleDeleteEpisode(jobId: string, env: Env): Promise<Response> {
+  if (!jobId) return jsonResponse({ error: "jobId が必要です" }, 400);
+
+  const data = await env.PODCAST_KV.get("episodes:all");
+  const allEpisodes: EpisodeEntry[] = data ? JSON.parse(data) : [];
+  const idx = allEpisodes.findIndex((e) => e.jobId === jobId);
+  if (idx === -1) return jsonResponse({ error: "エピソードが見つかりません" }, 404);
+
+  const removed = allEpisodes[idx];
+  for (const r of removed.results ?? []) {
+    if (r.scriptKey) await env.PODCAST_BUCKET.delete(r.scriptKey);
+    if (r.audioKey) await env.PODCAST_BUCKET.delete(r.audioKey);
+  }
+
+  allEpisodes.splice(idx, 1);
+  await env.PODCAST_KV.put("episodes:all", JSON.stringify(allEpisodes));
+  await env.PODCAST_KV.delete(`job:${jobId}`);
+
+  return jsonResponse({ ok: true, deletedJobId: jobId });
 }
 
 // GET /audio/:key — R2からMP3を配信
@@ -240,7 +283,7 @@ function serveUI(): Response {
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>知のわんこそば 🍜</title>
   <style>
     :root {
@@ -354,36 +397,51 @@ function serveUI(): Response {
       padding: 16px;
       margin-bottom: 12px;
     }
-    .episode-date { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px; }
+    .episode-date { font-size: 0.8rem; color: var(--text-dim); }
+    .episode-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .delete-ep-btn {
+      background: transparent;
+      border: 1px solid var(--error);
+      color: var(--error);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .delete-ep-btn:hover { background: rgba(248, 113, 113, 0.12); }
+    .episodes-hint { font-size: 0.8rem; color: var(--text-dim); margin: -6px 0 14px; line-height: 1.45; }
     .divider { height: 1px; background: var(--border); margin: 28px 0; }
   </style>
 </head>
 <body>
   <header>
-    <h1>知のわんこそば <span>🍜</span></h1>
+    <h1>知のわんこそば 🍜</h1>
     <p>AIキャスターが今週のニュースを語るポッドキャスト</p>
   </header>
-
   <div class="container">
-    <div style="margin-bottom: 24px;">
-      <h2 style="margin-bottom: 12px;">キャスターを選ぶ</h2>
-      <button class="all-btn" onclick="selectPersona('all')">🎙️ 全員分まとめて生成</button>
-      <div class="persona-grid" id="personaGrid"></div>
-      <button class="generate-btn" id="generateBtn" onclick="startGenerate()">選択したキャスターで生成する</button>
-    </div>
+    <h2>キャスターを選ぶ</h2>
+    <button type="button" class="all-btn" onclick="selectPersona('all')">🎙️ 全員分まとめて生成</button>
+    <div id="personaGrid" class="persona-grid"></div>
+    <button type="button" id="generateBtn" class="generate-btn" onclick="startGenerate()">選択したキャスターで生成する</button>
 
-    <div class="status-box" id="statusBox">
+    <div id="statusBox" class="status-box">
       <div class="status-label">生成ステータス</div>
-      <div class="status-text" id="statusText"></div>
+      <div id="statusText" class="status-text"></div>
       <div id="resultsArea"></div>
     </div>
 
     <div class="divider"></div>
-
-    <div class="episodes-section">
-      <h2>過去のエピソード</h2>
-      <div id="episodesList"><div style="color: var(--text-dim); font-size: 0.9rem;">読み込み中...</div></div>
-    </div>
+    <h2>過去のエピソード</h2>
+    <p class="episodes-hint">聴き終わった回は「この回を削除」でサーバー上の音声・台本を消せます（ポッドキャストアプリに既にダウンロード済みの場合は、アプリ側の削除は別途お願いします）。</p>
+    <div id="episodesList">読み込み中...</div>
   </div>
 
   <script>
@@ -395,13 +453,12 @@ function serveUI(): Response {
     let currentJobId = null;
     let pollInterval = null;
 
-    // ペルソナボタンを生成
     const grid = document.getElementById('personaGrid');
     PERSONAS.forEach(p => {
       const btn = document.createElement('button');
       btn.className = 'persona-btn' + (p.id === selectedPersona ? ' selected' : '');
       btn.id = 'btn-' + p.id;
-      btn.innerHTML = '<div class="name">' + p.name + '</div><div class="title">' + p.title + '</div>';
+      btn.innerHTML = '<span class="name">' + p.name + '</span><span class="title">' + p.title + '</span>';
       btn.onclick = () => selectPersona(p.id);
       grid.appendChild(btn);
     });
@@ -419,7 +476,7 @@ function serveUI(): Response {
       const statusBox = document.getElementById('statusBox');
       const statusText = document.getElementById('statusText');
       statusBox.classList.add('visible');
-      statusText.innerHTML = '<span class="spinner"></span>生成ジョブを送信中...';
+      statusText.innerHTML = '<span class="spinner"></span> 生成ジョブを送信中...';
       document.getElementById('resultsArea').innerHTML = '';
 
       try {
@@ -430,7 +487,7 @@ function serveUI(): Response {
         });
         const data = await resp.json();
         currentJobId = data.jobId;
-        statusText.innerHTML = '<span class="spinner"></span>生成受付完了 — 数分後に完了します...';
+        statusText.innerHTML = '<span class="spinner"></span> 生成受付完了 — 数分後に完了します...';
 
         if (pollInterval) clearInterval(pollInterval);
         pollInterval = setInterval(pollStatus, 4000);
@@ -458,11 +515,9 @@ function serveUI(): Response {
           statusText.innerHTML = '<span style="color:var(--error)">❌ エラー: ' + (data.error ?? '不明なエラー') + '</span>';
           document.getElementById('generateBtn').disabled = false;
         } else if (data.status === 'running') {
-          statusText.innerHTML = '<span class="spinner"></span>生成中... しばらくお待ちください';
+          statusText.innerHTML = '<span class="spinner"></span> 生成中... しばらくお待ちください';
         }
-      } catch (_e) {
-        // ポーリングエラーは無視
-      }
+      } catch (_e) {}
     }
 
     function renderResults(results) {
@@ -470,11 +525,8 @@ function serveUI(): Response {
       area.innerHTML = results.map(r => {
         const audioHtml = r.audioUrl
           ? '<audio controls src="' + r.audioUrl + '"></audio>'
-          : '<div style="color:var(--text-dim);font-size:0.8rem;margin-top:6px;">（音声なし）</div>';
-        return '<div class="result-item">'
-          + '<div class="caster-name">🎙️ ' + r.personaName + '</div>'
-          + audioHtml
-          + '</div>';
+          : '<span class="text-dim">（音声なし）</span>';
+        return '<div class="result-item"><div class="caster-name">🎙️ ' + r.personaName + '</div>' + audioHtml + '</div>';
       }).join('');
     }
 
@@ -484,20 +536,35 @@ function serveUI(): Response {
         const data = await resp.json();
         const list = document.getElementById('episodesList');
         if (!data.episodes || data.episodes.length === 0) {
-          list.innerHTML = '<div style="color:var(--text-dim);font-size:0.9rem;">まだエピソードがありません</div>';
+          list.innerHTML = '<p class="text-dim">まだエピソードがありません</p>';
           return;
         }
         list.innerHTML = data.episodes.slice(0, 10).map(ep => {
           const resultsHtml = (ep.results ?? []).map(r =>
-            '<div style="margin-top:8px;">'
-            + '<div style="font-size:0.85rem;font-weight:600;margin-bottom:4px;">🎙️ ' + r.personaName + '</div>'
-            + (r.audioUrl ? '<audio controls src="' + r.audioUrl + '" style="width:100%"></audio>' : '')
+            '<div class="result-item"><span class="caster-name">🎙️ ' + r.personaName + '</span>'
+            + (r.audioUrl ? '<audio controls src="' + r.audioUrl + '"></audio>' : '')
             + '</div>'
           ).join('');
-          return '<div class="episode-card"><div class="episode-date">📅 ' + ep.date + '</div>' + resultsHtml + '</div>';
+          const delBtn = '<button type="button" class="delete-ep-btn" onclick="deleteEpisode(' + JSON.stringify(ep.jobId) + ')">この回を削除</button>';
+          return '<div class="episode-card"><div class="episode-head"><div class="episode-date">📅 ' + ep.date + '</div>' + delBtn + '</div>' + resultsHtml + '</div>';
         }).join('');
       } catch (_e) {
-        document.getElementById('episodesList').innerHTML = '<div style="color:var(--text-dim)">読み込み失敗</div>';
+        document.getElementById('episodesList').innerHTML = '<p class="text-dim">読み込み失敗</p>';
+      }
+    }
+
+    async function deleteEpisode(jobId) {
+      if (!confirm('この日付のエピソードをサーバーから削除します。\\n（音声・台本ファイルは消え、一覧からも外れます。）\\nよろしいですか？')) return;
+      try {
+        const resp = await fetch('/api/episodes/' + encodeURIComponent(jobId), { method: 'DELETE' });
+        const data = await resp.json().catch(function () { return {}; });
+        if (!resp.ok) {
+          alert(data.error || '削除に失敗しました');
+          return;
+        }
+        loadEpisodes();
+      } catch (e) {
+        alert('削除に失敗しました: ' + (e && e.message ? e.message : String(e)));
       }
     }
 

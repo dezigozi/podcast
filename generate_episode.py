@@ -26,7 +26,7 @@ from rich.table import Table
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.audio_generator import AudioGenerator
-from src.collector import NewsCollector
+from src.collector import NewsCollector, partition_news_among_personas
 from src.feed_generator import FeedGenerator
 from src.script_generator import ScriptGenerator
 
@@ -186,14 +186,23 @@ def main(persona: str, no_audio: bool, output_dir: str, list_personas: bool):
 
     episodes = []
 
+    exclusive = len(selected) > 1
+    items_by_persona = (
+        partition_news_among_personas(items, selected) if exclusive else None
+    )
+
     # ─── 各ペルソナのエピソード生成 ─────────────
     for persona_id in selected:
         p = personas[persona_id]
         console.print(f"[bold]🎙️  {p['name']}（{p['title']}）[/bold]")
 
+        sub_items = items_by_persona[persona_id] if items_by_persona else items
+
         # スクリプト生成
         with console.status(f"[green]スクリプトを生成中...[/green]"):
-            script = generator.generate(items, persona_id)
+            script = generator.generate(
+                sub_items, persona_id, exclusive_assignment=exclusive
+            )
 
         script_path = episode_dir / f"{persona_id}_script.txt"
         with open(script_path, "w", encoding="utf-8") as f:

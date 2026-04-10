@@ -6,9 +6,10 @@ import { PODCAST_CONFIG } from "./rss-feeds";
 export async function generateScript(
   newsPrompt: string,
   persona: Persona,
-  apiKey: string
+  apiKey: string,
+  exclusiveTopics = false
 ): Promise<string> {
-  const systemPrompt = buildSystemPrompt(persona);
+  const systemPrompt = buildSystemPrompt(persona, exclusiveTopics);
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -39,7 +40,19 @@ export async function generateScript(
   return data.choices[0]?.message?.content ?? "";
 }
 
-function buildSystemPrompt(persona: Persona): string {
+function buildSystemPrompt(persona: Persona, exclusiveTopics: boolean): string {
+  const exclusiveBlock = exclusiveTopics
+    ? `
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+【週次シリーズの掟：題材の分担】
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+今回渡されるニュースリストは「あなた担当の題材」に限定されています。他の4名のキャスターは別のニュースを担当します。
+・リストにない出来事をメインの論点にしないでください。
+・同一週に他キャスターと同じニュース・同一事件を主トピックにしないでください。
+
+`
+    : "";
+
   return `あなたは${persona.name}（${persona.title}）です。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -58,7 +71,7 @@ ${persona.catchphrase}
 
 【シグネチャームーブ（得意技）】
 ${persona.signature_move}
-
+${exclusiveBlock}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 【エピソードの構成】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━

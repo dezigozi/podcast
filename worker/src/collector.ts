@@ -46,6 +46,25 @@ export async function collectNews(): Promise<NewsItem[]> {
   return deduped.slice(0, PODCAST_CONFIG.maxTopics);
 }
 
+/**
+ * 複数キャスターが同じ週のネタで被らないよう、ニュースをラウンドロビンで割り当てる。
+ * items は時系列降順を想定（先頭ほど新しい）。
+ */
+export function partitionNewsAmongPersonas(
+  items: NewsItem[],
+  personaIds: readonly string[]
+): Record<string, NewsItem[]> {
+  const buckets: Record<string, NewsItem[]> = {};
+  for (const id of personaIds) buckets[id] = [];
+  if (personaIds.length === 0) return buckets;
+
+  for (let i = 0; i < items.length; i++) {
+    const id = personaIds[i % personaIds.length];
+    buckets[id].push(items[i]);
+  }
+  return buckets;
+}
+
 // RSSフィードを取得してNewsItemリストを返す
 async function fetchRss(feed: RssFeed): Promise<NewsItem[]> {
   const resp = await fetch(feed.url, {
@@ -192,17 +211,37 @@ function deduplicate(items: NewsItem[]): NewsItem[] {
   });
 }
 
+export interface BuildNewsPromptOptions {
+  /** 真のとき：他キャスターと題材が被らない専用割当である旨を明示 */
+  exclusiveAssignment?: boolean;
+}
+
 // ニュースをカテゴリ別にまとめてプロンプト用テキストに変換
-export function buildNewsPrompt(items: NewsItem[]): string {
+export function buildNewsPrompt(items: NewsItem[], options?: BuildNewsPromptOptions): string {
+  const exclusive = options?.exclusiveAssignment ?? false;
+
   const byCategory: Record<string, NewsItem[]> = {};
   for (const item of items) {
     (byCategory[item.category] ??= []).push(item);
   }
 
-  const lines: string[] = [
+  const lines: string[] = [];
+
+  if (exclusive) {
+    lines.push(
+      "【担当割当トピック】同一天に収録される他キャスターと題材が被らないよう、あなた専用に振り分けられたニュースだけをリストしています。",
+      "・このリストに含まれるニュースだけを、本編の主要トピックとして取り上げてください（イントロのひと言の比喩として他を触れてもよいが、本題は割当分のみ）。",
+      "・リスト外の「今週の大きな出来事」に便乗した重複解説はしないでください。",
+      ""
+    );
+  }
+
+  lines.push(
     "今週のニュースリストです。以下を参考に、今週のエピソードを作成してください。",
-    "（すべてを取り上げる必要はありません。最も興味深いものを自由に選んでください）",
-  ];
+    exclusive
+      ? "（上記のルールに従い、このリストの中から3〜4件程度を選び、深く語ってください。件数が少ない場合はリスト内のすべてを扱ってください）"
+      : "（すべてを取り上げる必要はありません。最も興味深いものを自由に選んでください）"
+  );
 
   for (const [category, catItems] of Object.entries(byCategory)) {
     const label = CATEGORY_LABELS[category] ?? category;
