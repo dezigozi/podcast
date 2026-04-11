@@ -59,6 +59,90 @@
 
 ---
 
+## 🎯 機能概要
+
+**目的：** 同じニュースを複数のAIキャスターが異なる視点で解説するポッドキャストを自動生成
+
+**主な機能：**
+- 📰 毎週自動でニュース収集（10+ RSS フィード + Hacker News）
+- 🎙️ 5人のAIキャスターが同じニュースを異なるテーマで語る
+- 🔊 OpenAI TTS で自動音声化（MP3）
+- ☁️ Cloudflare Workers でデプロイ（サーバーレス）
+- 📱 ポッドキャストアプリ対応（RSS feed）
+
+**使用技術：**
+- TypeScript + Cloudflare Workers
+- OpenAI GPT-4o（スクリプト生成）
+- OpenAI TTS（音声合成）
+- Cloudflare R2（ファイル保存）、KV（状態管理）
+
+---
+
+## 🏗️ アーキテクチャ
+
+```
+ニュース収集（collectNews）
+   ↓ 各キャスターの専門分野に応じてフィルタリング
+スクリプト生成（generateScript）
+   ↓ 異なるテーマを選ぶプロンプト
+音声合成（generateAudio）
+   ↓ OpenAI TTS で MP3 化
+R2 に保存 + KV に メタデータ
+   ↓
+Web UI で表示 + RSS feed 出力
+```
+
+**主要モジュール：**
+- `collector.ts` — RSS収集、カテゴリ分け、キャスター専用プロンプト生成
+- `personas.ts` — 5人のキャスター定義＋専門分野（expertise）
+- `script-generator.ts` — GPT-4o でスクリプト生成
+- `audio-generator.ts` — OpenAI TTS で MP3 化
+- `index.ts` — API エンドポイント＋ Cron 自動実行＋削除機能
+
+---
+
+## 📝 実装ポイント
+
+### 重要な設計判断
+
+1. **各キャスターが異なるテーマを選ぶ設計**
+   - 理由：同じニュースでも「視点」が変わると、まったく違う解説になる面白さ
+   - 実装：`buildNewsPromptForPersona()` で得意分野を ★ マークで強調
+   - 各キャスターの `expertise` フィールドに専門分野（複数可）を指定
+
+2. **Cloudflare Workers のサーバーレス設計**
+   - 理由：毎週1回の自動実行なので、常時起動不要
+   - 実装：Cron Trigger（毎週月曜 09:00 JST）+ `ctx.waitUntil()` でバックグラウンド処理
+   - Queue は不要（paid plan 不要で Cron + waitUntil で十分）
+
+3. **削除機能の実装**
+   - 理由：エピソードが増え続けると R2 が圧迫される
+   - 実装：DELETE API + UI に削除ボタン + R2 から関連ファイル自動削除
+
+4. **カテゴリ別ニュース管理**
+   - カテゴリ：tech, japan, international, science, general
+   - 各キャスターの専門分野に応じてフィルタリング＆優先表示
+
+### 今後の拡張予定
+
+- [ ] 削除ボタンの確認ダイアログを改善
+- [ ] 音声の速度調整機能
+- [ ] ポッドキャスト配信プラットフォーム連携（Spotify, Apple Podcast など）
+- [ ] キャスター間の対話機能（複数キャスターの会話形式）
+- [ ] ニュースソースの動的追加機能
+
+---
+
+## 🔄 更新履歴
+
+| 日付 | 変更内容 | 実装ポイント |
+|---|---|---|
+| 2026-04-11 | 各キャスターが異なるテーマを選ぶ機能 | `buildNewsPromptForPersona()` で得意分野を強調 |
+| 2026-04-11 | エピソード削除機能 | DELETE API + UI 削除ボタン + R2 自動クリーンアップ |
+| 2026-04-XX | GitHub Actions デプロイ自動化 | Secrets に Cloudflare token 登録 |
+
+---
+
 ## セットアップ（初回のみ）
 
 ### 1. OpenAI APIキーを用意する
