@@ -58,6 +58,10 @@ export default {
       const key = url.pathname.replace("/audio/", "");
       return handleAudio(key, env);
     }
+    if (url.pathname.startsWith("/api/episodes/") && request.method === "DELETE") {
+      const jobId = url.pathname.split("/api/episodes/")[1];
+      return handleDeleteEpisode(jobId, env);
+    }
 
     return new Response("Not Found", { status: 404 });
   },
@@ -220,6 +224,55 @@ async function handleEpisodes(env: Env): Promise<Response> {
   return jsonResponse({ episodes });
 }
 
+// DELETE /api/episodes/:jobId
+async function handleDeleteEpisode(jobId: string, env: Env): Promise<Response> {
+  if (!jobId) return jsonResponse({ error: "jobId が必要です" }, 400);
+
+  try {
+    // KVからエピソード一覧を取得
+    const data = await env.PODCAST_KV.get("episodes:all");
+    const episodes = data ? JSON.parse(data) : [];
+
+    // 対象エピソードを探す
+    const episodeIndex = episodes.findIndex((ep: any) => ep.jobId === jobId);
+    if (episodeIndex === -1) {
+      return jsonResponse({ error: "エピソードが見つかりません" }, 404);
+    }
+
+    const episode = episodes[episodeIndex];
+
+    // R2 から関連ファイルを削除
+    if (episode.results && Array.isArray(episode.results)) {
+      for (const result of episode.results) {
+        // scriptKey と audioKey を削除
+        if (result.scriptKey) {
+          try {
+            await env.PODCAST_BUCKET.delete(result.scriptKey);
+          } catch (e) {
+            console.warn(`Failed to delete script: ${result.scriptKey}`, e);
+          }
+        }
+        if (result.audioKey) {
+          try {
+            await env.PODCAST_BUCKET.delete(result.audioKey);
+          } catch (e) {
+            console.warn(`Failed to delete audio: ${result.audioKey}`, e);
+          }
+        }
+      }
+    }
+
+    // エピソードリストから削除
+    episodes.splice(episodeIndex, 1);
+    await env.PODCAST_KV.put("episodes:all", JSON.stringify(episodes));
+
+    return jsonResponse({ success: true, message: "エピソードを削除しました" });
+  } catch (err) {
+    console.error("Delete error:", err);
+    return jsonResponse({ error: String(err) }, 500);
+  }
+}
+
 // GET /audio/:key — R2からMP3を配信
 async function handleAudio(key: string, env: Env): Promise<Response> {
   const object = await env.PODCAST_BUCKET.get(key);
@@ -354,7 +407,19 @@ function serveUI(): Response {
       padding: 16px;
       margin-bottom: 12px;
     }
-    .episode-date { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px; }
+    .episode-date { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+    .episode-date-text { flex: 1; }
+    .delete-btn {
+      background: var(--error);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .delete-btn:hover { opacity: 0.8; }
     .divider { height: 1px; background: var(--border); margin: 28px 0; }
   </style>
 </head>
@@ -494,10 +559,33 @@ function serveUI(): Response {
             + (r.audioUrl ? '<audio controls src="' + r.audioUrl + '" style="width:100%"></audio>' : '')
             + '</div>'
           ).join('');
-          return '<div class="episode-card"><div class="episode-date">📅 ' + ep.date + '</div>' + resultsHtml + '</div>';
+          return '<div class="episode-card">'
+            + '<div class="episode-date">'
+            + '<span class="episode-date-text">📅 ' + ep.date + '</span>'
+            + '<button class="delete-btn" onclick="deleteEpisode(\'' + ep.jobId + '\')">削除</button>'
+            + '</div>'
+            + resultsHtml
+            + '</div>';
         }).join('');
       } catch (_e) {
         document.getElementById('episodesList').innerHTML = '<div style="color:var(--text-dim)">読み込み失敗</div>';
+      }
+    }
+
+    async function deleteEpisode(jobId) {
+      if (!confirm('このエピソードを削除してもよろしいですか？')) {
+        return;
+      }
+      try {
+        const resp = await fetch('/api/episodes/' + jobId, { method: 'DELETE' });
+        const data = await resp.json();
+        if (resp.ok) {
+          loadEpisodes();
+        } else {
+          alert('削除失敗: ' + (data.error ?? '不明なエラー'));
+        }
+      } catch (e) {
+        alert('削除エラー: ' + e.message);
       }
     }
 
