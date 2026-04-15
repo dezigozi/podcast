@@ -56,7 +56,7 @@ export default {
     }
     if (url.pathname.startsWith("/audio/")) {
       const key = url.pathname.replace("/audio/", "");
-      return handleAudio(key, env);
+      return handleAudio(key, env, request);
     }
     if (url.pathname.startsWith("/api/episodes/") && request.method === "DELETE") {
       const jobId = url.pathname.split("/api/episodes/")[1];
@@ -275,18 +275,37 @@ async function handleDeleteEpisode(jobId: string, env: Env): Promise<Response> {
   }
 }
 
-// GET /audio/:key — R2からMP3を配信
-async function handleAudio(key: string, env: Env): Promise<Response> {
-  const object = await env.PODCAST_BUCKET.get(key);
+// GET /audio/:key — R2からMP3を配信（Range リクエスト対応）
+async function handleAudio(key: string, env: Env, request: Request): Promise<Response> {
+  const rangeHeader = request.headers.get("Range");
+
+  const object = rangeHeader
+    ? await env.PODCAST_BUCKET.get(key, { range: request.headers })
+    : await env.PODCAST_BUCKET.get(key);
+
   if (!object) return new Response("Not Found", { status: 404 });
 
-  return new Response(object.body, {
-    headers: {
-      "Content-Type": "audio/mpeg",
-      "Cache-Control": "public, max-age=86400",
-      "Accept-Ranges": "bytes",
-    },
+  const headers = new Headers({
+    "Content-Type": "audio/mpeg",
+    "Cache-Control": "public, max-age=86400",
+    "Accept-Ranges": "bytes",
   });
+
+  if (rangeHeader && object.range) {
+    const range = object.range as { offset?: number; length?: number; suffix?: number };
+    const offset = "suffix" in range && range.suffix !== undefined
+      ? object.size - range.suffix
+      : (range.offset ?? 0);
+    const length = range.suffix !== undefined
+      ? range.suffix
+      : (range.length ?? object.size - offset);
+    headers.set("Content-Length", String(length));
+    headers.set("Content-Range", `bytes ${offset}-${offset + length - 1}/${object.size}`);
+    return new Response(object.body, { status: 206, headers });
+  }
+
+  headers.set("Content-Length", String(object.size));
+  return new Response(object.body, { headers });
 }
 
 // フロントエンドUI
