@@ -244,9 +244,13 @@ async function handleStatus(jobId: string, env: Env): Promise<Response> {
 
 // GET /api/episodes
 async function handleEpisodes(env: Env): Promise<Response> {
-  const data = await env.PODCAST_KV.get("episodes:all");
-  const episodes = data ? JSON.parse(data) : [];
-  return jsonResponse({ episodes });
+  try {
+    const data = await env.PODCAST_KV.get("episodes:all");
+    const episodes = data ? JSON.parse(data) : [];
+    return jsonResponse({ episodes });
+  } catch (err) {
+    return jsonResponse({ episodes: [], error: String(err) }, 200);
+  }
 }
 
 // GET /api/cron-status — 最終 cron 実行状況
@@ -594,10 +598,15 @@ function serveUI(): Response {
     }
 
     async function loadEpisodes() {
+      const list = document.getElementById('episodesList');
+      if (!list) return;
       try {
-        const resp = await fetch('/api/episodes');
+        const resp = await fetch('/api/episodes', { signal: AbortSignal.timeout(15000) });
+        if (!resp.ok) {
+          list.innerHTML = '<div style="color:var(--error)">サーバーエラー: HTTP ' + resp.status + '</div>';
+          return;
+        }
         const data = await resp.json();
-        const list = document.getElementById('episodesList');
         if (!data.episodes || data.episodes.length === 0) {
           list.innerHTML = '<div style="color:var(--text-dim);font-size:0.9rem;">まだエピソードがありません</div>';
           return;
@@ -617,8 +626,8 @@ function serveUI(): Response {
             + resultsHtml
             + '</div>';
         }).join('');
-      } catch (_e) {
-        document.getElementById('episodesList').innerHTML = '<div style="color:var(--text-dim)">読み込み失敗</div>';
+      } catch (e) {
+        list.innerHTML = '<div style="color:var(--error)">読み込みエラー: ' + e.message + '</div>';
       }
     }
 
