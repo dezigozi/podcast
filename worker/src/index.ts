@@ -454,7 +454,14 @@ function serveUI(): Response {
     <div style="margin-bottom: 24px;">
       <h2 style="margin-bottom: 12px;">キャスターを選ぶ</h2>
       <button class="all-btn" onclick="selectPersona('all')">🎙️ 全員分まとめて生成</button>
-      <div class="persona-grid" id="personaGrid"></div>
+      <div class="persona-grid" id="personaGrid">
+        ${Object.entries(PERSONAS).map(([id, p]) =>
+          `<button class="persona-btn${id === "philosopher" ? " selected" : ""}" id="btn-${id}" onclick="selectPersona('${id}')">`
+          + `<div class="name">${p.name}</div>`
+          + `<div class="title">${p.title}</div>`
+          + `</button>`
+        ).join("")}
+      </div>
       <button class="generate-btn" id="generateBtn" onclick="startGenerate()">選択したキャスターで生成する</button>
     </div>
 
@@ -473,24 +480,9 @@ function serveUI(): Response {
   </div>
 
   <script>
-    const PERSONAS = ${JSON.stringify(
-      Object.entries(PERSONAS).map(([id, p]) => ({ id, name: p.name, title: p.title }))
-    )};
-
     let selectedPersona = 'philosopher';
     let currentJobId = null;
     let pollInterval = null;
-
-    // ペルソナボタンを生成
-    const grid = document.getElementById('personaGrid');
-    PERSONAS.forEach(p => {
-      const btn = document.createElement('button');
-      btn.className = 'persona-btn' + (p.id === selectedPersona ? ' selected' : '');
-      btn.id = 'btn-' + p.id;
-      btn.innerHTML = '<div class="name">' + p.name + '</div><div class="title">' + p.title + '</div>';
-      btn.onclick = () => selectPersona(p.id);
-      grid.appendChild(btn);
-    });
 
     function selectPersona(id) {
       selectedPersona = id;
