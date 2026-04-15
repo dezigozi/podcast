@@ -33,6 +33,7 @@ export interface JobStatus {
     audioKey?: string;
     audioUrl?: string;
     scriptLength: number;
+    error?: string;
   }>;
 }
 
@@ -53,6 +54,9 @@ export default {
     }
     if (url.pathname === "/api/episodes") {
       return handleEpisodes(env);
+    }
+    if (url.pathname === "/api/cron-status") {
+      return handleCronStatus(env);
     }
     if (url.pathname.startsWith("/audio/")) {
       const key = url.pathname.replace("/audio/", "");
@@ -83,6 +87,8 @@ export default {
     await env.PODCAST_KV.put(`job:${jobId}`, JSON.stringify(queuedStatus), {
       expirationTtl: 86400 * 7,
     });
+    // 最終 cron 実行の jobId を記録（UI から確認できるようにする）
+    await env.PODCAST_KV.put("cron:last-job-id", jobId, { expirationTtl: 86400 * 30 });
     // バックグラウンドで生成処理を実行
     ctx.waitUntil(processJob(job, env));
   },
@@ -112,49 +118,66 @@ async function processJob(job: GenerateJob, env: Env): Promise<void> {
       const persona = PERSONAS[personaId];
       if (!persona) continue;
 
-      // 各キャスターの得意分野に応じたニュースプロンプトを生成
-      const newsPrompt = buildNewsPromptForPersona(newsItems, persona.expertise);
+      try {
+        // 各キャスターの得意分野に応じたニュースプロンプトを生成
+        const newsPrompt = buildNewsPromptForPersona(newsItems, persona.expertise);
 
-      const script = await generateScript(newsPrompt, persona, env.OPENAI_API_KEY);
+        const script = await generateScript(newsPrompt, persona, env.OPENAI_API_KEY);
 
-      const scriptKey = `${dateStr}/${personaId}_script.txt`;
-      await env.PODCAST_BUCKET.put(scriptKey, script, {
-        httpMetadata: { contentType: "text/plain; charset=utf-8" },
-      });
-
-      const result: NonNullable<JobStatus["results"]>[number] = {
-        personaId,
-        personaName: persona.name,
-        scriptKey,
-        scriptLength: script.length,
-      };
-
-      if (!job.noAudio) {
-        const audioBytes = await generateAudio(script, persona.voice, env.OPENAI_API_KEY);
-        const audioKey = `${dateStr}/${personaId}.mp3`;
-        await env.PODCAST_BUCKET.put(audioKey, audioBytes, {
-          httpMetadata: { contentType: "audio/mpeg" },
+        const scriptKey = `${dateStr}/${personaId}_script.txt`;
+        await env.PODCAST_BUCKET.put(scriptKey, script, {
+          httpMetadata: { contentType: "text/plain; charset=utf-8" },
         });
-        result.audioKey = audioKey;
-        result.audioUrl = `/audio/${audioKey}`;
+
+        const result: NonNullable<JobStatus["results"]>[number] = {
+          personaId,
+          personaName: persona.name,
+          scriptKey,
+          scriptLength: script.length,
+        };
+
+        if (!job.noAudio) {
+          const audioBytes = await generateAudio(script, persona.voice, env.OPENAI_API_KEY);
+          const audioKey = `${dateStr}/${personaId}.mp3`;
+          await env.PODCAST_BUCKET.put(audioKey, audioBytes, {
+            httpMetadata: { contentType: "audio/mpeg" },
+          });
+          result.audioKey = audioKey;
+          result.audioUrl = `/audio/${audioKey}`;
+        }
+        results.push(result);
+      } catch (personaErr) {
+        // 1キャスターのエラーで全体を止めない
+        console.error(`[${personaId}] 生成エラー:`, personaErr);
+        results.push({
+          personaId,
+          personaName: persona.name,
+          scriptKey: "",
+          scriptLength: 0,
+          error: String(personaErr),
+        });
       }
-      results.push(result);
     }
 
+    const successCount = results.filter((r) => !r.error).length;
     const doneStatus: JobStatus = {
-      status: "done",
+      status: successCount > 0 ? "done" : "error",
       persona: job.persona,
       createdAt: job.createdAt,
       startedAt: runningStatus.startedAt,
       completedAt: new Date().toISOString(),
       results,
+      error: successCount === 0 ? "全キャスターの生成に失敗しました" : undefined,
     };
     await env.PODCAST_KV.put(`job:${job.jobId}`, JSON.stringify(doneStatus), { expirationTtl: 86400 * 7 });
 
-    const allEpisodesJson = await env.PODCAST_KV.get("episodes:all");
-    const allEpisodes = allEpisodesJson ? JSON.parse(allEpisodesJson) : [];
-    allEpisodes.unshift({ jobId: job.jobId, date: dateStr, results });
-    await env.PODCAST_KV.put("episodes:all", JSON.stringify(allEpisodes.slice(0, 50)));
+    // 成功したキャスターがいる場合のみエピソードリストに追加
+    if (successCount > 0) {
+      const allEpisodesJson = await env.PODCAST_KV.get("episodes:all");
+      const allEpisodes = allEpisodesJson ? JSON.parse(allEpisodesJson) : [];
+      allEpisodes.unshift({ jobId: job.jobId, date: dateStr, results: results.filter((r) => !r.error) });
+      await env.PODCAST_KV.put("episodes:all", JSON.stringify(allEpisodes.slice(0, 50)));
+    }
   } catch (err) {
     const errorStatus: JobStatus = {
       status: "error",
@@ -163,7 +186,7 @@ async function processJob(job: GenerateJob, env: Env): Promise<void> {
       startedAt: runningStatus.startedAt,
       error: String(err),
     };
-    await env.PODCAST_KV.put(`job:${job.jobId}`, JSON.stringify(errorStatus), { expirationTtl: 86400 });
+    await env.PODCAST_KV.put(`job:${job.jobId}`, JSON.stringify(errorStatus), { expirationTtl: 86400 * 7 });
     throw err;
   }
 }
@@ -224,6 +247,15 @@ async function handleEpisodes(env: Env): Promise<Response> {
   const data = await env.PODCAST_KV.get("episodes:all");
   const episodes = data ? JSON.parse(data) : [];
   return jsonResponse({ episodes });
+}
+
+// GET /api/cron-status — 最終 cron 実行状況
+async function handleCronStatus(env: Env): Promise<Response> {
+  const lastJobId = await env.PODCAST_KV.get("cron:last-job-id");
+  if (!lastJobId) return jsonResponse({ status: "never", message: "cron はまだ実行されていません" });
+  const data = await env.PODCAST_KV.get(`job:${lastJobId}`);
+  if (!data) return jsonResponse({ status: "expired", jobId: lastJobId, message: "実行記録が期限切れです" });
+  return jsonResponse({ jobId: lastJobId, ...JSON.parse(data) });
 }
 
 // DELETE /api/episodes/:jobId
@@ -473,6 +505,11 @@ function serveUI(): Response {
 
     <div class="divider"></div>
 
+    <div style="margin-bottom: 24px;">
+      <h2>スケジュール実行状況</h2>
+      <div id="cronStatus" style="font-size:0.85rem;color:var(--text-dim);">確認中...</div>
+    </div>
+
     <div class="episodes-section">
       <h2>過去のエピソード</h2>
       <div id="episodesList"><div style="color: var(--text-dim); font-size: 0.9rem;">読み込み中...</div></div>
@@ -602,7 +639,40 @@ function serveUI(): Response {
       }
     }
 
+    async function loadCronStatus() {
+      try {
+        const resp = await fetch('/api/cron-status');
+        const data = await resp.json();
+        const el = document.getElementById('cronStatus');
+        if (data.status === 'never') {
+          el.innerHTML = '⏰ 毎週月曜 09:00 JST に自動生成 — まだ実行されていません';
+        } else if (data.status === 'expired') {
+          el.innerHTML = '⏰ 毎週月曜 09:00 JST に自動生成 — 最終実行記録は期限切れです';
+        } else if (data.status === 'done') {
+          const successCount = (data.results ?? []).filter(r => !r.error).length;
+          const errorCount = (data.results ?? []).filter(r => r.error).length;
+          const dateStr = new Date(data.completedAt).toLocaleString('ja-JP');
+          const errNote = errorCount > 0 ? ' <span style="color:var(--error)">（' + errorCount + 'キャスター失敗）</span>' : '';
+          el.innerHTML = '✅ 最終実行: ' + dateStr + ' — ' + successCount + 'キャスター成功' + errNote;
+          if (errorCount > 0) {
+            const errors = (data.results ?? []).filter(r => r.error).map(r =>
+              '<div style="margin-top:4px;color:var(--error);font-size:0.8rem;">❌ ' + r.personaName + ': ' + r.error + '</div>'
+            ).join('');
+            el.innerHTML += errors;
+          }
+        } else if (data.status === 'error') {
+          const dateStr = data.startedAt ? new Date(data.startedAt).toLocaleString('ja-JP') : '不明';
+          el.innerHTML = '<span style="color:var(--error)">❌ 最終実行: ' + dateStr + ' — エラー: ' + (data.error ?? '不明') + '</span>';
+        } else if (data.status === 'running' || data.status === 'queued') {
+          el.innerHTML = '<span class="spinner"></span>現在生成中...';
+        }
+      } catch (_e) {
+        document.getElementById('cronStatus').innerHTML = '⏰ 毎週月曜 09:00 JST に自動生成';
+      }
+    }
+
     loadEpisodes();
+    loadCronStatus();
   </script>
 </body>
 </html>`;
