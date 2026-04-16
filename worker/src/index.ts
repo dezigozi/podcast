@@ -45,7 +45,7 @@ export interface EpisodeEntry {
 }
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/" || url.pathname === "") {
@@ -73,7 +73,7 @@ export default {
     return new Response("Not Found", { status: 404 });
   },
 
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     const jobId = `cron-${Date.now()}`;
     const job: GenerateJob = {
       jobId,
