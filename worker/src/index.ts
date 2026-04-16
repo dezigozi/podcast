@@ -621,7 +621,7 @@ function serveUI(): Response {
           return '<div class="episode-card">'
             + '<div class="episode-date">'
             + '<span class="episode-date-text">📅 ' + ep.date + '</span>'
-            + '<button class="delete-btn" onclick="deleteEpisode(\'' + ep.jobId + '\')">削除</button>'
+            + '<button class="delete-btn" data-job-id="' + ep.jobId + '" onclick="deleteEpisode(this.dataset.jobId)">削除</button>'
             + '</div>'
             + resultsHtml
             + '</div>';
