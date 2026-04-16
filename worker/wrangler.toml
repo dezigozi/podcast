@@ -1,4 +1,4 @@
-name = "podcast"
+name = "cast"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
@@ -26,4 +26,4 @@ max_retries = 3
 crons = ["0 0 * * 1"] # 毎週月曜 09:00 JST (UTC 00:00)
 
 [vars]
-PODCAST_BASE_URL = "https://podcast.workers.dev"
+PODCAST_BASE_URL = "https://cast.dezigozi.workers.dev"

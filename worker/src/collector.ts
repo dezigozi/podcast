@@ -257,3 +257,49 @@ export function buildNewsPrompt(items: NewsItem[], options?: BuildNewsPromptOpti
   lines.push("", "", "それでは、エピソードのスクリプトを作成してください。");
   return lines.join("\n");
 }
+
+// キャスター専用：得意分野に応じたニュースプロンプトを生成
+export function buildNewsPromptForPersona(items: NewsItem[], expertiseCategories: string[]): string {
+  const byCategory: Record<string, NewsItem[]> = {};
+  for (const item of items) {
+    (byCategory[item.category] ??= []).push(item);
+  }
+
+  const lines: string[] = [
+    "今週のニュースリストです。",
+    `あなたの得意分野は【${expertiseCategories.map(c => CATEGORY_LABELS[c] ?? c).join("、")}】です。`,
+    "これらの分野を特に重視しながら、以下を参考に今週のエピソードを作成してください。",
+    "（すべてを取り上げる必要はありません。得意分野から最も興味深いものを優先的に選んでください）",
+  ];
+
+  // 得意分野を先に表示
+  for (const category of expertiseCategories) {
+    if (byCategory[category]) {
+      const label = CATEGORY_LABELS[category] ?? category;
+      lines.push("", `★ ${label} （あなたの得意分野）`, "─".repeat(30));
+      for (const item of byCategory[category].slice(0, 8)) {
+        const langNote = item.language === "en" ? "（英語記事）" : "";
+        lines.push(`・${item.title}${langNote}`);
+        if (item.description) lines.push(`  → ${item.description.slice(0, 200)}`);
+        lines.push(`  出典: ${item.source}`);
+      }
+    }
+  }
+
+  // その他のカテゴリを表示
+  for (const [category, catItems] of Object.entries(byCategory)) {
+    if (!expertiseCategories.includes(category)) {
+      const label = CATEGORY_LABELS[category] ?? category;
+      lines.push("", label, "─".repeat(30));
+      for (const item of catItems.slice(0, 8)) {
+        const langNote = item.language === "en" ? "（英語記事）" : "";
+        lines.push(`・${item.title}${langNote}`);
+        if (item.description) lines.push(`  → ${item.description.slice(0, 200)}`);
+        lines.push(`  出典: ${item.source}`);
+      }
+    }
+  }
+
+  lines.push("", "", "それでは、エピソードのスクリプトを作成してください。");
+  return lines.join("\n");
+}
