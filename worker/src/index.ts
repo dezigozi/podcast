@@ -521,6 +521,17 @@ function serveUI(): Response {
   </div>
 
   <script>
+    function escapeHtml(text) {
+      const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      };
+      return text.replace(/[&<>"']/g, (char) => map[char]);
+    }
+
     let selectedPersona = 'philosopher';
     let currentJobId = null;
     let pollInterval = null;
@@ -554,7 +565,7 @@ function serveUI(): Response {
         if (pollInterval) clearInterval(pollInterval);
         pollInterval = setInterval(pollStatus, 4000);
       } catch (e) {
-        statusText.innerHTML = '<span style="color:var(--error)">❌ エラー: ' + e.message + '</span>';
+        statusText.innerHTML = '<span style="color:var(--error)">❌ エラー: ' + escapeHtml(e.message) + '</span>';
         btn.disabled = false;
       }
     }
@@ -574,7 +585,7 @@ function serveUI(): Response {
           loadEpisodes();
         } else if (data.status === 'error') {
           clearInterval(pollInterval);
-          statusText.innerHTML = '<span style="color:var(--error)">❌ エラー: ' + (data.error ?? '不明なエラー') + '</span>';
+          statusText.innerHTML = '<span style="color:var(--error)">❌ エラー: ' + escapeHtml(data.error ?? '不明なエラー') + '</span>';
           document.getElementById('generateBtn').disabled = false;
         } else if (data.status === 'running') {
           statusText.innerHTML = '<span class="spinner"></span>生成中... しばらくお待ちください';
@@ -588,10 +599,10 @@ function serveUI(): Response {
       const area = document.getElementById('resultsArea');
       area.innerHTML = results.map(r => {
         const audioHtml = r.audioUrl
-          ? '<audio controls src="' + r.audioUrl + '"></audio>'
+          ? '<audio controls src="' + escapeHtml(r.audioUrl) + '"></audio>'
           : '<div style="color:var(--text-dim);font-size:0.8rem;margin-top:6px;">（音声なし）</div>';
         return '<div class="result-item">'
-          + '<div class="caster-name">🎙️ ' + r.personaName + '</div>'
+          + '<div class="caster-name">🎙️ ' + escapeHtml(r.personaName) + '</div>'
           + audioHtml
           + '</div>';
       }).join('');
@@ -603,7 +614,7 @@ function serveUI(): Response {
       try {
         const resp = await fetch('/api/episodes', { signal: AbortSignal.timeout(15000) });
         if (!resp.ok) {
-          list.innerHTML = '<div style="color:var(--error)">サーバーエラー: HTTP ' + resp.status + '</div>';
+          list.innerHTML = '<div style="color:var(--error)">サーバーエラー: HTTP ' + escapeHtml(resp.status.toString()) + '</div>';
           return;
         }
         const data = await resp.json();
@@ -614,20 +625,20 @@ function serveUI(): Response {
         list.innerHTML = data.episodes.slice(0, 10).map(ep => {
           const resultsHtml = (ep.results ?? []).map(r =>
             '<div style="margin-top:8px;">'
-            + '<div style="font-size:0.85rem;font-weight:600;margin-bottom:4px;">🎙️ ' + r.personaName + '</div>'
-            + (r.audioUrl ? '<audio controls src="' + r.audioUrl + '" style="width:100%"></audio>' : '')
+            + '<div style="font-size:0.85rem;font-weight:600;margin-bottom:4px;">🎙️ ' + escapeHtml(r.personaName) + '</div>'
+            + (r.audioUrl ? '<audio controls src="' + escapeHtml(r.audioUrl) + '" style="width:100%"></audio>' : '')
             + '</div>'
           ).join('');
           return '<div class="episode-card">'
             + '<div class="episode-date">'
-            + '<span class="episode-date-text">📅 ' + ep.date + '</span>'
-            + '<button class="delete-btn" data-job-id="' + ep.jobId + '" onclick="deleteEpisode(this.dataset.jobId)">削除</button>'
+            + '<span class="episode-date-text">📅 ' + escapeHtml(ep.date) + '</span>'
+            + '<button class="delete-btn" data-job-id="' + escapeHtml(ep.jobId) + '" onclick="deleteEpisode(this.dataset.jobId)">削除</button>'
             + '</div>'
             + resultsHtml
             + '</div>';
         }).join('');
       } catch (e) {
-        list.innerHTML = '<div style="color:var(--error)">読み込みエラー: ' + e.message + '</div>';
+        list.innerHTML = '<div style="color:var(--error)">読み込みエラー: ' + escapeHtml(e.message) + '</div>';
       }
     }
 
@@ -644,7 +655,7 @@ function serveUI(): Response {
           alert('削除失敗: ' + (data.error ?? '不明なエラー'));
         }
       } catch (e) {
-        alert('削除エラー: ' + e.message);
+        alert('削除エラー: ' + (e instanceof Error ? e.message : '不明なエラー'));
       }
     }
 
@@ -662,16 +673,16 @@ function serveUI(): Response {
           const errorCount = (data.results ?? []).filter(r => r.error).length;
           const dateStr = new Date(data.completedAt).toLocaleString('ja-JP');
           const errNote = errorCount > 0 ? ' <span style="color:var(--error)">（' + errorCount + 'キャスター失敗）</span>' : '';
-          el.innerHTML = '✅ 最終実行: ' + dateStr + ' — ' + successCount + 'キャスター成功' + errNote;
+          el.innerHTML = '✅ 最終実行: ' + escapeHtml(dateStr) + ' — ' + successCount + 'キャスター成功' + errNote;
           if (errorCount > 0) {
             const errors = (data.results ?? []).filter(r => r.error).map(r =>
-              '<div style="margin-top:4px;color:var(--error);font-size:0.8rem;">❌ ' + r.personaName + ': ' + r.error + '</div>'
+              '<div style="margin-top:4px;color:var(--error);font-size:0.8rem;">❌ ' + escapeHtml(r.personaName) + ': ' + escapeHtml(r.error) + '</div>'
             ).join('');
             el.innerHTML += errors;
           }
         } else if (data.status === 'error') {
           const dateStr = data.startedAt ? new Date(data.startedAt).toLocaleString('ja-JP') : '不明';
-          el.innerHTML = '<span style="color:var(--error)">❌ 最終実行: ' + dateStr + ' — エラー: ' + (data.error ?? '不明') + '</span>';
+          el.innerHTML = '<span style="color:var(--error)">❌ 最終実行: ' + escapeHtml(dateStr) + ' — エラー: ' + escapeHtml(data.error ?? '不明') + '</span>';
         } else if (data.status === 'running' || data.status === 'queued') {
           el.innerHTML = '<span class="spinner"></span>現在生成中...';
         }
