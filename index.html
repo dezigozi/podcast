@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>架装品売上レポート</title>
+  <!-- GAS URL と パスワードを meta タグで注入（Cloudflare Pages の _headers や Edge Functions で書き換え可） -->
+  <!-- 本番環境では wrangler.toml の vars か Pages の環境変数から inject するが、
+       シンプル運用ならここに直接書いても OK -->
+  <meta name="gas-url" content="" />
+  <meta name="app-password" content="" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          animation: {
+            'fade-in': 'fadeIn 0.3s ease-out',
+            'fade-in-up': 'fadeInUp 0.4s ease-out',
+          },
+          keyframes: {
+            fadeIn: { from: { opacity: '0' }, to: { opacity: '1' } },
+            fadeInUp: { from: { opacity: '0', transform: 'translateY(16px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @media print { .no-print { display: none !important; } }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="./src/App.js"></script>
+</body>
+</html>
