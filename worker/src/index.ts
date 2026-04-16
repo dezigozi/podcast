@@ -2,7 +2,7 @@
 // Queueの代わりに ctx.waitUntil() でバックグラウンド生成を実行
 
 import { PERSONAS, PERSONA_IDS } from "./personas";
-import { collectNews, buildNewsPrompt, buildNewsPromptForPersona } from "./collector";
+import { collectNews, buildNewsPromptForPersona } from "./collector";
 import { generateScript } from "./script-generator";
 import { generateAudio } from "./audio-generator";
 
