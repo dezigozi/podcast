@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>知のわんこそば</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #1e293b;
+      border-radius: 16px;
+      padding: 40px;
+      max-width: 600px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    }
+    h1 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: #38bdf8;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      color: #94a3b8;
+      font-size: 0.95rem;
+      margin-bottom: 32px;
+      line-height: 1.6;
+    }
+    .persona-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+    .persona-btn {
+      background: #0f172a;
+      border: 2px solid #334155;
+      border-radius: 10px;
+      padding: 16px 14px;
+      cursor: pointer;
+      text-align: left;
+      color: #e2e8f0;
+      transition: all 0.2s;
+    }
+    .persona-btn:hover { border-color: #38bdf8; background: #162032; }
+    .persona-btn.selected { border-color: #38bdf8; background: #0c3a5e; }
+    .persona-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .persona-name { font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; }
+    .persona-title { font-size: 0.78rem; color: #94a3b8; }
+    .generate-btn {
+      width: 100%;
+      padding: 16px;
+      background: #0284c7;
+      color: white;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .generate-btn:hover:not(:disabled) { background: #0369a1; }
+    .generate-btn:disabled { background: #334155; cursor: not-allowed; color: #64748b; }
+    .status-area {
+      margin-top: 24px;
+      display: none;
+    }
+    .status-bar {
+      background: #0f172a;
+      border-radius: 8px;
+      padding: 16px 20px;
+      border-left: 4px solid #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid #334155;
+      border-top-color: #38bdf8;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status-text { font-size: 0.95rem; color: #94a3b8; }
+    .player-area {
+      margin-top: 24px;
+      display: none;
+      background: #0f172a;
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .player-label {
+      font-size: 0.9rem;
+      color: #38bdf8;
+      margin-bottom: 14px;
+      font-weight: 600;
+    }
+    audio { width: 100%; border-radius: 8px; }
+    .download-btn {
+      display: inline-block;
+      margin-top: 14px;
+      padding: 10px 20px;
+      background: #0f4c75;
+      color: #7dd3fc;
+      border-radius: 8px;
+      text-decoration: none;
+      font-size: 0.88rem;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+    .download-btn:hover { background: #1a6fa8; }
+    .error-area {
+      margin-top: 16px;
+      background: #450a0a;
+      border-radius: 8px;
+      padding: 16px;
+      color: #fca5a5;
+      font-size: 0.9rem;
+      display: none;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>🎙️ 知のわんこそば</h1>
+  <p class="subtitle">AIキャスターが今週のニュースを解説します。<br>1人選んで生成ボタンを押してください（約1〜2分かかります）。</p>
+
+  <div class="persona-grid" id="persona-grid"></div>
+
+  <button class="generate-btn" id="gen-btn" disabled onclick="startGenerate()">
+    キャスターを選択してください
+  </button>
+
+  <div class="status-area" id="status-area">
+    <div class="status-bar">
+      <div class="spinner"></div>
+      <span class="status-text" id="status-text">準備中...</span>
+    </div>
+  </div>
+
+  <div class="player-area" id="player-area">
+    <div class="player-label" id="player-label"></div>
+    <audio id="audio-player" controls></audio>
+    <a id="download-link" class="download-btn" download>⬇️ MP3をダウンロード</a>
+  </div>
+
+  <div class="error-area" id="error-area"></div>
+</div>
+
+<script>
+  let selectedPersona = null;
+  let pollingTimer = null;
+
+  async function loadPersonas() {
+    try {
+      const res = await fetch('/api/personas');
+      const personas = await res.json();
+      const grid = document.getElementById('persona-grid');
+      personas.forEach(p => {
+        const btn = document.createElement('button');
+        btn.className = 'persona-btn';
+        btn.dataset.id = p.id;
+        btn.innerHTML = `<div class="persona-name">${p.name}</div><div class="persona-title">${p.title}</div>`;
+        btn.onclick = () => selectPersona(p.id, btn);
+        grid.appendChild(btn);
+      });
+    } catch (e) {
+      showError('ページ読み込みに失敗しました。再読み込みしてください。');
+    }
+  }
+
+  function selectPersona(id, btn) {
+    document.querySelectorAll('.persona-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedPersona = id;
+    const genBtn = document.getElementById('gen-btn');
+    genBtn.disabled = false;
+    genBtn.textContent = '生成する';
+  }
+
+  async function startGenerate() {
+    if (!selectedPersona) return;
+
+    clearInterval(pollingTimer);
+    setGenerating(true);
+    hideError();
+
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ persona_id: selectedPersona }),
+      });
+      const data = await res.json();
+      if (!res.ok) { showError(data.error || '生成開始に失敗しました'); setGenerating(false); return; }
+      pollStatus(data.job_id);
+    } catch (e) {
+      showError('サーバーへの接続に失敗しました。');
+      setGenerating(false);
+    }
+  }
+
+  function pollStatus(job_id) {
+    pollingTimer = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/status/${job_id}`);
+        const data = await res.json();
+        document.getElementById('status-text').textContent = data.label || data.status;
+
+        if (data.status === 'done') {
+          clearInterval(pollingTimer);
+          showPlayer(job_id, data.persona_name);
+        } else if (data.status === 'error') {
+          clearInterval(pollingTimer);
+          showError(data.error || '生成中にエラーが発生しました');
+          setGenerating(false);
+        }
+      } catch (e) {
+        clearInterval(pollingTimer);
+        showError('ステータス確認中にエラーが発生しました。');
+        setGenerating(false);
+      }
+    }, 2000);
+  }
+
+  function setGenerating(on) {
+    const genBtn = document.getElementById('gen-btn');
+    const statusArea = document.getElementById('status-area');
+    document.getElementById('player-area').style.display = 'none';
+    document.querySelectorAll('.persona-btn').forEach(b => b.disabled = on);
+
+    if (on) {
+      genBtn.disabled = true;
+      genBtn.textContent = '生成中...';
+      statusArea.style.display = 'block';
+      document.getElementById('status-text').textContent = '準備中...';
+    } else {
+      genBtn.disabled = !selectedPersona;
+      genBtn.textContent = selectedPersona ? '生成する' : 'キャスターを選択してください';
+      statusArea.style.display = 'none';
+    }
+  }
+
+  function showPlayer(job_id, persona_name) {
+    setGenerating(false);
+    const playerArea = document.getElementById('player-area');
+    playerArea.style.display = 'block';
+    document.getElementById('player-label').textContent = `✅ ${persona_name} のエピソードが完成しました`;
+    const url = `/api/audio/${job_id}?t=${Date.now()}`;
+    const audio = document.getElementById('audio-player');
+    audio.src = url;
+    audio.play().catch(() => {});
+    const dl = document.getElementById('download-link');
+    dl.href = url;
+    dl.download = `${persona_name}_podcast.mp3`;
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('error-area');
+    el.style.display = 'block';
+    el.textContent = `⚠️ ${msg}`;
+  }
+
+  function hideError() {
+    document.getElementById('error-area').style.display = 'none';
+  }
+
+  loadPersonas();
+</script>
+</body>
+</html>

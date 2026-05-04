@@ -3,6 +3,7 @@
 
 RSS フィードと Hacker News API から今週のホットトピックスを収集する。
 """
+from __future__ import annotations
 
 import re
 import time
