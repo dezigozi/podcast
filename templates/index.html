@@ -20,33 +20,23 @@
       background: #1e293b;
       border-radius: 16px;
       padding: 40px;
-      max-width: 600px;
+      max-width: 620px;
       width: 100%;
       box-shadow: 0 20px 60px rgba(0,0,0,0.4);
     }
-    h1 {
-      font-size: 1.8rem;
-      font-weight: 700;
-      color: #38bdf8;
-      margin-bottom: 8px;
-    }
-    .subtitle {
-      color: #94a3b8;
-      font-size: 0.95rem;
-      margin-bottom: 32px;
-      line-height: 1.6;
-    }
+    h1 { font-size: 1.8rem; font-weight: 700; color: #38bdf8; margin-bottom: 8px; }
+    .subtitle { color: #94a3b8; font-size: 0.95rem; margin-bottom: 28px; line-height: 1.6; }
     .persona-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-bottom: 28px;
+      gap: 10px;
+      margin-bottom: 16px;
     }
     .persona-btn {
       background: #0f172a;
       border: 2px solid #334155;
       border-radius: 10px;
-      padding: 16px 14px;
+      padding: 14px 12px;
       cursor: pointer;
       text-align: left;
       color: #e2e8f0;
@@ -55,14 +45,15 @@
     .persona-btn:hover { border-color: #38bdf8; background: #162032; }
     .persona-btn.selected { border-color: #38bdf8; background: #0c3a5e; }
     .persona-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .persona-name { font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; }
-    .persona-title { font-size: 0.78rem; color: #94a3b8; }
+    .persona-name { font-weight: 600; font-size: 0.92rem; margin-bottom: 3px; }
+    .persona-title { font-size: 0.75rem; color: #94a3b8; }
+    .btn-row { display: flex; gap: 10px; margin-bottom: 0; }
     .generate-btn {
-      width: 100%;
-      padding: 16px;
+      flex: 1;
+      padding: 14px;
       background: #0284c7;
       color: white;
-      font-size: 1rem;
+      font-size: 0.95rem;
       font-weight: 600;
       border: none;
       border-radius: 10px;
@@ -71,22 +62,33 @@
     }
     .generate-btn:hover:not(:disabled) { background: #0369a1; }
     .generate-btn:disabled { background: #334155; cursor: not-allowed; color: #64748b; }
-    .status-area {
-      margin-top: 24px;
-      display: none;
+    .generate-all-btn {
+      flex: 1;
+      padding: 14px;
+      background: #7c3aed;
+      color: white;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s;
     }
+    .generate-all-btn:hover:not(:disabled) { background: #6d28d9; }
+    .generate-all-btn:disabled { background: #334155; cursor: not-allowed; color: #64748b; }
+    .status-area { margin-top: 20px; display: none; }
     .status-bar {
       background: #0f172a;
       border-radius: 8px;
-      padding: 16px 20px;
+      padding: 14px 18px;
       border-left: 4px solid #38bdf8;
       display: flex;
       align-items: center;
       gap: 12px;
+      margin-bottom: 8px;
     }
     .spinner {
-      width: 18px;
-      height: 18px;
+      width: 16px; height: 16px;
       border: 2px solid #334155;
       border-top-color: #38bdf8;
       border-radius: 50%;
@@ -94,41 +96,67 @@
       flex-shrink: 0;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .status-text { font-size: 0.95rem; color: #94a3b8; }
-    .player-area {
-      margin-top: 24px;
-      display: none;
+    .status-text { font-size: 0.9rem; color: #94a3b8; }
+
+    /* 全員生成の進捗リスト */
+    .group-status-list { display: flex; flex-direction: column; gap: 8px; }
+    .group-status-item {
       background: #0f172a;
-      border-radius: 12px;
-      padding: 20px;
+      border-radius: 8px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }
-    .player-label {
-      font-size: 0.9rem;
-      color: #38bdf8;
-      margin-bottom: 14px;
-      font-weight: 600;
+    .group-item-name { font-size: 0.88rem; font-weight: 600; min-width: 140px; }
+    .group-item-label { font-size: 0.82rem; color: #94a3b8; flex: 1; }
+    .group-item-spinner {
+      width: 14px; height: 14px;
+      border: 2px solid #334155;
+      border-top-color: #7c3aed;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
     }
+
+    .player-area { margin-top: 20px; display: none; background: #0f172a; border-radius: 12px; padding: 18px; }
+    .player-label { font-size: 0.88rem; color: #38bdf8; margin-bottom: 12px; font-weight: 600; }
     audio { width: 100%; border-radius: 8px; }
     .download-btn {
       display: inline-block;
-      margin-top: 14px;
-      padding: 10px 20px;
+      margin-top: 12px;
+      padding: 9px 18px;
       background: #0f4c75;
       color: #7dd3fc;
       border-radius: 8px;
       text-decoration: none;
-      font-size: 0.88rem;
+      font-size: 0.85rem;
       font-weight: 600;
       transition: background 0.2s;
     }
     .download-btn:hover { background: #1a6fa8; }
-    .error-area {
+    .download-zip-btn {
+      display: block;
       margin-top: 16px;
+      padding: 14px;
+      background: #4c1d95;
+      color: #c4b5fd;
+      border-radius: 10px;
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 600;
+      text-align: center;
+      transition: background 0.2s;
+    }
+    .download-zip-btn:hover { background: #5b21b6; }
+    .error-area {
+      margin-top: 14px;
       background: #450a0a;
       border-radius: 8px;
-      padding: 16px;
+      padding: 14px;
       color: #fca5a5;
-      font-size: 0.9rem;
+      font-size: 0.88rem;
       display: none;
       line-height: 1.5;
     }
@@ -137,14 +165,16 @@
 <body>
 <div class="card">
   <h1>🎙️ 知のわんこそば</h1>
-  <p class="subtitle">AIキャスターが今週のニュースを解説します。<br>1人選んで生成ボタンを押してください（約1〜2分かかります）。</p>
+  <p class="subtitle">AIキャスターが今週のニュースを解説します。<br>1人選んで個別生成、または全員まとめて生成できます（約1〜2分/人）。</p>
 
   <div class="persona-grid" id="persona-grid"></div>
 
-  <button class="generate-btn" id="gen-btn" disabled onclick="startGenerate()">
-    キャスターを選択してください
-  </button>
+  <div class="btn-row">
+    <button class="generate-btn" id="gen-btn" disabled onclick="startGenerate()">キャスターを選択</button>
+    <button class="generate-all-btn" id="gen-all-btn" onclick="startGenerateAll()">🎙️ 全員生成</button>
+  </div>
 
+  <!-- 個別生成ステータス -->
   <div class="status-area" id="status-area">
     <div class="status-bar">
       <div class="spinner"></div>
@@ -152,10 +182,17 @@
     </div>
   </div>
 
+  <!-- 個別生成プレイヤー -->
   <div class="player-area" id="player-area">
     <div class="player-label" id="player-label"></div>
     <audio id="audio-player" controls></audio>
     <a id="download-link" class="download-btn" download>⬇️ MP3をダウンロード</a>
+  </div>
+
+  <!-- 全員生成ステータス -->
+  <div class="status-area" id="group-status-area">
+    <div class="group-status-list" id="group-status-list"></div>
+    <a id="download-zip-link" class="download-zip-btn" style="display:none">⬇️ 全員分をZIPでダウンロード</a>
   </div>
 
   <div class="error-area" id="error-area"></div>
@@ -164,6 +201,7 @@
 <script>
   let selectedPersona = null;
   let pollingTimer = null;
+  let groupPollingTimer = null;
 
   async function loadPersonas() {
     try {
@@ -192,11 +230,13 @@
     genBtn.textContent = '生成する';
   }
 
+  // ── 個別生成 ────────────────────────────────
   async function startGenerate() {
     if (!selectedPersona) return;
-
     clearInterval(pollingTimer);
+    clearInterval(groupPollingTimer);
     setGenerating(true);
+    hideGroupStatus();
     hideError();
 
     try {
@@ -220,7 +260,6 @@
         const res = await fetch(`/api/status/${job_id}`);
         const data = await res.json();
         document.getElementById('status-text').textContent = data.label || data.status;
-
         if (data.status === 'done') {
           clearInterval(pollingTimer);
           showPlayer(job_id, data.persona_name);
@@ -239,10 +278,11 @@
 
   function setGenerating(on) {
     const genBtn = document.getElementById('gen-btn');
+    const genAllBtn = document.getElementById('gen-all-btn');
     const statusArea = document.getElementById('status-area');
     document.getElementById('player-area').style.display = 'none';
     document.querySelectorAll('.persona-btn').forEach(b => b.disabled = on);
-
+    genAllBtn.disabled = on;
     if (on) {
       genBtn.disabled = true;
       genBtn.textContent = '生成中...';
@@ -250,7 +290,7 @@
       document.getElementById('status-text').textContent = '準備中...';
     } else {
       genBtn.disabled = !selectedPersona;
-      genBtn.textContent = selectedPersona ? '生成する' : 'キャスターを選択してください';
+      genBtn.textContent = selectedPersona ? '生成する' : 'キャスターを選択';
       statusArea.style.display = 'none';
     }
   }
@@ -264,9 +304,97 @@
     const audio = document.getElementById('audio-player');
     audio.src = url;
     audio.play().catch(() => {});
+    const today = new Date().toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\//g, '');
     const dl = document.getElementById('download-link');
     dl.href = url;
-    dl.download = `${persona_name}_podcast.mp3`;
+    dl.download = `わんこそば_${persona_name.replace(/\s/g, '').replace(/・/g, '')}_${today}.mp3`;
+  }
+
+  // ── 全員生成 ────────────────────────────────
+  async function startGenerateAll() {
+    clearInterval(pollingTimer);
+    clearInterval(groupPollingTimer);
+    hideError();
+    setAllGenerating(true);
+    document.getElementById('player-area').style.display = 'none';
+    document.getElementById('status-area').style.display = 'none';
+
+    try {
+      const res = await fetch('/api/generate-all', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { showError(data.error || '生成開始に失敗しました'); setAllGenerating(false); return; }
+      pollGroupStatus(data.group_id, data.job_ids);
+    } catch (e) {
+      showError('サーバーへの接続に失敗しました。');
+      setAllGenerating(false);
+    }
+  }
+
+  function pollGroupStatus(group_id, job_ids) {
+    const list = document.getElementById('group-status-list');
+    document.getElementById('group-status-area').style.display = 'block';
+    document.getElementById('download-zip-link').style.display = 'none';
+
+    // 初期表示
+    list.innerHTML = '';
+    job_ids.forEach(jid => {
+      const el = document.createElement('div');
+      el.className = 'group-status-item';
+      el.id = `group-item-${jid}`;
+      el.innerHTML = `<span class="group-item-name">—</span><span class="group-item-label">待機中...</span><div class="group-item-spinner"></div>`;
+      list.appendChild(el);
+    });
+
+    groupPollingTimer = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/group-status/${group_id}`);
+        const data = await res.json();
+
+        data.statuses.forEach(s => {
+          const el = document.getElementById(`group-item-${s.job_id}`);
+          if (!el) return;
+          const name = s.persona_name || s.persona_id;
+          const isDone = s.status === 'done';
+          const isError = s.status === 'error';
+          el.innerHTML = `
+            <span class="group-item-name">${name}</span>
+            <span class="group-item-label">${s.label || s.status}</span>
+            ${isDone ? '✅' : isError ? '❌' : '<div class="group-item-spinner"></div>'}
+          `;
+        });
+
+        if (data.all_done) {
+          clearInterval(groupPollingTimer);
+          setAllGenerating(false);
+          const zipLink = document.getElementById('download-zip-link');
+          zipLink.href = `/api/download-all/${group_id}`;
+          zipLink.style.display = 'block';
+        } else if (data.any_error) {
+          clearInterval(groupPollingTimer);
+          setAllGenerating(false);
+          showError('一部のキャスターの生成に失敗しました。');
+        }
+      } catch (e) {
+        clearInterval(groupPollingTimer);
+        setAllGenerating(false);
+        showError('ステータス確認中にエラーが発生しました。');
+      }
+    }, 2000);
+  }
+
+  function setAllGenerating(on) {
+    const genBtn = document.getElementById('gen-btn');
+    const genAllBtn = document.getElementById('gen-all-btn');
+    document.querySelectorAll('.persona-btn').forEach(b => b.disabled = on);
+    genBtn.disabled = on || !selectedPersona;
+    genAllBtn.disabled = on;
+    genAllBtn.textContent = on ? '生成中...' : '🎙️ 全員生成';
+  }
+
+  function hideGroupStatus() {
+    document.getElementById('group-status-area').style.display = 'none';
+    document.getElementById('group-status-list').innerHTML = '';
+    document.getElementById('download-zip-link').style.display = 'none';
   }
 
   function showError(msg) {

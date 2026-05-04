@@ -1,7 +1,7 @@
 personas:
 
   centrist:
-    name: "山田 一郎"
+    name: "デイヴィッド・ハリス"
     title: "中道解説キャスター"
     description: |
       元NHKアナウンサー。15年以上のジャーナリスト経験を持つ53歳。
@@ -23,7 +23,7 @@ personas:
     signature_move: "対立する二項を提示した後、その共通の根っこにある問いを掘り下げる"
 
   progressive:
-    name: "田中 美咲"
+    name: "サラ・ミラー"
     title: "社会変革キャスター"
     description: |
       元社会運動家・フリーランスジャーナリスト。38歳。
@@ -45,7 +45,7 @@ personas:
     signature_move: "マクロの経済・政治データを、特定の個人の生活体験に落とし込んで語る"
 
   conservative:
-    name: "鈴木 健一"
+    name: "ジェームズ・タッカー"
     title: "保守政論キャスター"
     description: |
       元財務省官僚・現政策アドバイザー。59歳。
@@ -67,7 +67,7 @@ personas:
     signature_move: "現代の問題を過去の歴史的失敗・成功事例と対照させて論じる"
 
   tech_optimist:
-    name: "橋本 ケン"
+    name: "ライアン・チェン"
     title: "テック楽観主義キャスター"
     description: |
       AI研究者・シリアル起業家。44歳。
@@ -90,7 +90,7 @@ personas:
     signature_move: "現在のニュースをムーアの法則・指数関数的変化のレンズで解釈し、10年後の姿を描く"
 
   philosopher:
-    name: "西村 哲"
+    name: "オリビア・スミス"
     title: "哲学・文化評論キャスター"
     description: |
       哲学者・文化評論家。63歳。

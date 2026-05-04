@@ -1,8 +1,11 @@
+import io
 import logging
 import os
 import sys
 import threading
 import uuid
+import zipfile
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -19,6 +22,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 jobs: dict = {}
+groups: dict = {}
 OUTPUT_DIR = Path("/tmp/podcast_jobs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -107,6 +111,76 @@ def generate():
     t.start()
 
     return jsonify({"job_id": job_id})
+
+
+@app.route("/api/generate-all", methods=["POST"])
+def generate_all():
+    _, personas_cfg = load_config()
+
+    if not os.getenv("OPENAI_API_KEY"):
+        return jsonify({"error": "OPENAI_API_KEY が設定されていません"}), 500
+
+    group_id = uuid.uuid4().hex
+    job_ids = []
+
+    for persona_id in personas_cfg.keys():
+        job_id = uuid.uuid4().hex
+        jobs[job_id] = {"status": "collecting", "persona_id": persona_id}
+        t = threading.Thread(target=generate_task, args=(job_id, persona_id), daemon=True)
+        t.start()
+        job_ids.append(job_id)
+
+    groups[group_id] = {"job_ids": job_ids}
+    return jsonify({"group_id": group_id, "job_ids": job_ids})
+
+
+@app.route("/api/group-status/<group_id>")
+def group_status(group_id):
+    group = groups.get(group_id)
+    if not group:
+        return jsonify({"error": "グループが見つかりません"}), 404
+
+    statuses = []
+    for job_id in group["job_ids"]:
+        job = jobs.get(job_id, {})
+        statuses.append({
+            "job_id": job_id,
+            "status": job.get("status"),
+            "label": STATUS_LABELS.get(job.get("status", ""), ""),
+            "persona_name": job.get("persona_name", ""),
+            "persona_id": job.get("persona_id", ""),
+            "error": job.get("error"),
+        })
+
+    all_done = all(s["status"] == "done" for s in statuses)
+    any_error = any(s["status"] == "error" for s in statuses)
+
+    return jsonify({"statuses": statuses, "all_done": all_done, "any_error": any_error})
+
+
+@app.route("/api/download-all/<group_id>")
+def download_all(group_id):
+    group = groups.get(group_id)
+    if not group:
+        return jsonify({"error": "グループが見つかりません"}), 404
+
+    today = datetime.now().strftime("%Y%m%d")
+    buf = io.BytesIO()
+
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for job_id in group["job_ids"]:
+            job = jobs.get(job_id, {})
+            if job.get("status") == "done" and job.get("audio_path"):
+                name = job.get("persona_name", job_id).replace(" ", "").replace("・", "")
+                zf.write(job["audio_path"], f"わんこそば_{name}_{today}.mp3")
+
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"わんこそば_全員_{today}.zip",
+    )
 
 
 @app.route("/api/status/<job_id>")
