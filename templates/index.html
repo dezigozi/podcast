@@ -258,7 +258,9 @@
     pollingTimer = setInterval(async () => {
       try {
         const res = await fetch(`/api/status/${job_id}`);
-        const data = await res.json();
+        let data;
+        try { data = await res.json(); } catch (_) { throw new Error(`サーバーエラー HTTP ${res.status}`); }
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
         document.getElementById('status-text').textContent = data.label || data.status;
         if (data.status === 'done') {
           clearInterval(pollingTimer);
@@ -270,7 +272,7 @@
         }
       } catch (e) {
         clearInterval(pollingTimer);
-        showError('ステータス確認中にエラーが発生しました。');
+        showError('エラー: ' + (e.message || 'ステータス確認に失敗しました'));
         setGenerating(false);
       }
     }, 2000);
@@ -348,11 +350,9 @@
     groupPollingTimer = setInterval(async () => {
       try {
         const res = await fetch(`/api/group-status/${group_id}`);
-        const data = await res.json();
-
-        if (!res.ok || data.error) {
-          throw new Error(data.error || `HTTP ${res.status}`);
-        }
+        let data;
+        try { data = await res.json(); } catch (_) { throw new Error(`サーバーエラー HTTP ${res.status}`); }
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
         data.statuses.forEach(s => {
           const el = document.getElementById(`group-item-${s.job_id}`);
@@ -381,7 +381,7 @@
       } catch (e) {
         clearInterval(groupPollingTimer);
         setAllGenerating(false);
-        showError('ステータス確認中にエラーが発生しました。');
+        showError('エラー: ' + (e.message || 'ステータス確認に失敗しました'));
       }
     }, 2000);
   }

@@ -183,6 +183,18 @@ def download_all(group_id):
     )
 
 
+@app.route("/api/debug")
+def debug():
+    import os
+    return jsonify({
+        "jobs_count": len(jobs),
+        "groups_count": len(groups),
+        "job_ids": list(jobs.keys()),
+        "group_ids": list(groups.keys()),
+        "pid": os.getpid(),
+    })
+
+
 @app.route("/api/status/<job_id>")
 def status(job_id):
     job = jobs.get(job_id)
