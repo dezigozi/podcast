@@ -1,4 +1,5 @@
 import io
+import json
 import logging
 import os
 import sys
@@ -21,10 +22,13 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-jobs: dict = {}
-groups: dict = {}
-OUTPUT_DIR = Path("/tmp/podcast_jobs")
-OUTPUT_DIR.mkdir(exist_ok=True)
+# ファイルベースの状態管理（複数ワーカー間で共有できるよう /tmp に保存）
+JOB_DIR = Path("/tmp/podcast_jobs")
+GROUP_DIR = Path("/tmp/podcast_groups")
+AUDIO_DIR = Path("/tmp/podcast_audio")
+JOB_DIR.mkdir(exist_ok=True)
+GROUP_DIR.mkdir(exist_ok=True)
+AUDIO_DIR.mkdir(exist_ok=True)
 
 STATUS_LABELS = {
     "collecting": "📰 ニュース収集中...",
@@ -35,6 +39,46 @@ STATUS_LABELS = {
 }
 
 
+# ── ファイル I/O ヘルパー ─────────────────────────────────────────
+
+def _read_json(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _write_json(path: Path, data: dict):
+    """tmp ファイルに書いてからリネーム（アトミック書き込み）"""
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    tmp.rename(path)
+
+
+def _get_job(job_id: str) -> dict:
+    return _read_json(JOB_DIR / f"{job_id}.json")
+
+
+def _set_job(job_id: str, data: dict):
+    _write_json(JOB_DIR / f"{job_id}.json", data)
+
+
+def _update_job(job_id: str, **kwargs):
+    job = _get_job(job_id)
+    job.update(kwargs)
+    _set_job(job_id, job)
+
+
+def _get_group(group_id: str) -> dict:
+    return _read_json(GROUP_DIR / f"{group_id}.json")
+
+
+def _set_group(group_id: str, data: dict):
+    _write_json(GROUP_DIR / f"{group_id}.json", data)
+
+
+# ── 設定読み込み ──────────────────────────────────────────────────
+
 def load_config():
     config_dir = Path(__file__).parent / "config"
     with open(config_dir / "settings.yaml", encoding="utf-8") as f:
@@ -43,6 +87,8 @@ def load_config():
         personas = yaml.safe_load(f).get("personas", {})
     return settings, personas
 
+
+# ── バックグラウンド生成タスク ────────────────────────────────────
 
 def generate_task(job_id: str, persona_id: str):
     try:
@@ -53,29 +99,31 @@ def generate_task(job_id: str, persona_id: str):
         settings, personas = load_config()
         persona = personas[persona_id]
 
-        jobs[job_id]["status"] = "collecting"
+        _update_job(job_id, status="collecting")
         collector = NewsCollector(settings)
         items = collector.collect()
 
-        jobs[job_id]["status"] = "generating_script"
+        _update_job(job_id, status="generating_script")
         generator = ScriptGenerator(settings, personas)
         script = generator.generate(items, persona_id)
 
-        jobs[job_id]["status"] = "generating_audio"
-        audio_path = OUTPUT_DIR / f"{job_id}.mp3"
+        _update_job(job_id, status="generating_audio")
+        audio_path = AUDIO_DIR / f"{job_id}.mp3"
         audio_gen = AudioGenerator(settings)
         audio_gen.generate(script, persona["voice"], audio_path)
 
-        jobs[job_id].update({
-            "status": "done",
-            "audio_path": str(audio_path),
-            "persona_name": persona["name"],
-        })
+        _update_job(job_id,
+            status="done",
+            audio_path=str(audio_path),
+            persona_name=persona["name"],
+        )
 
     except Exception as e:
         logger.exception("生成エラー: %s", e)
-        jobs[job_id].update({"status": "error", "error": str(e)})
+        _update_job(job_id, status="error", error=str(e))
 
+
+# ── Flask ルート ──────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -105,7 +153,7 @@ def generate():
         return jsonify({"error": "OPENAI_API_KEY が設定されていません"}), 500
 
     job_id = uuid.uuid4().hex
-    jobs[job_id] = {"status": "collecting", "persona_id": persona_id}
+    _set_job(job_id, {"status": "collecting", "persona_id": persona_id})
 
     t = threading.Thread(target=generate_task, args=(job_id, persona_id), daemon=True)
     t.start()
@@ -125,24 +173,24 @@ def generate_all():
 
     for persona_id in personas_cfg.keys():
         job_id = uuid.uuid4().hex
-        jobs[job_id] = {"status": "collecting", "persona_id": persona_id}
+        _set_job(job_id, {"status": "collecting", "persona_id": persona_id})
         t = threading.Thread(target=generate_task, args=(job_id, persona_id), daemon=True)
         t.start()
         job_ids.append(job_id)
 
-    groups[group_id] = {"job_ids": job_ids}
+    _set_group(group_id, {"job_ids": job_ids})
     return jsonify({"group_id": group_id, "job_ids": job_ids})
 
 
 @app.route("/api/group-status/<group_id>")
 def group_status(group_id):
-    group = groups.get(group_id)
+    group = _get_group(group_id)
     if not group:
         return jsonify({"error": "グループが見つかりません"}), 404
 
     statuses = []
     for job_id in group["job_ids"]:
-        job = jobs.get(job_id, {})
+        job = _get_job(job_id)
         statuses.append({
             "job_id": job_id,
             "status": job.get("status"),
@@ -160,7 +208,7 @@ def group_status(group_id):
 
 @app.route("/api/download-all/<group_id>")
 def download_all(group_id):
-    group = groups.get(group_id)
+    group = _get_group(group_id)
     if not group:
         return jsonify({"error": "グループが見つかりません"}), 404
 
@@ -169,7 +217,7 @@ def download_all(group_id):
 
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for job_id in group["job_ids"]:
-            job = jobs.get(job_id, {})
+            job = _get_job(job_id)
             if job.get("status") == "done" and job.get("audio_path"):
                 name = job.get("persona_name", job_id).replace(" ", "").replace("・", "")
                 zf.write(job["audio_path"], f"わんこそば_{name}_{today}.mp3")
@@ -183,33 +231,32 @@ def download_all(group_id):
     )
 
 
-@app.route("/api/debug")
-def debug():
-    import os
-    return jsonify({
-        "jobs_count": len(jobs),
-        "groups_count": len(groups),
-        "job_ids": list(jobs.keys()),
-        "group_ids": list(groups.keys()),
-        "pid": os.getpid(),
-    })
-
-
 @app.route("/api/status/<job_id>")
 def status(job_id):
-    job = jobs.get(job_id)
+    job = _get_job(job_id)
     if not job:
         return jsonify({"error": "ジョブが見つかりません"}), 404
-    label = STATUS_LABELS.get(job["status"], job["status"])
+    label = STATUS_LABELS.get(job.get("status", ""), job.get("status", ""))
     return jsonify({**job, "label": label})
 
 
 @app.route("/api/audio/<job_id>")
 def audio(job_id):
-    job = jobs.get(job_id)
+    job = _get_job(job_id)
     if not job or job.get("status") != "done":
         return jsonify({"error": "音声ファイルが存在しません"}), 404
     return send_file(job["audio_path"], mimetype="audio/mpeg", as_attachment=False)
+
+
+@app.route("/api/debug")
+def debug():
+    job_files = list(JOB_DIR.glob("*.json"))
+    group_files = list(GROUP_DIR.glob("*.json"))
+    return jsonify({
+        "jobs_count": len(job_files),
+        "groups_count": len(group_files),
+        "pid": os.getpid(),
+    })
 
 
 if __name__ == "__main__":
