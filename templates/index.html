@@ -350,6 +350,10 @@
         const res = await fetch(`/api/group-status/${group_id}`);
         const data = await res.json();
 
+        if (!res.ok || data.error) {
+          throw new Error(data.error || `HTTP ${res.status}`);
+        }
+
         data.statuses.forEach(s => {
           const el = document.getElementById(`group-item-${s.job_id}`);
           if (!el) return;
