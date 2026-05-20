@@ -3,8 +3,20 @@
 
 import { PERSONAS, PERSONA_IDS } from "./personas";
 import { fetchNewsForPersona, buildNewsPromptForPersona } from "./collector";
+import { FEEDS_BY_CATEGORY } from "./rss-feeds";
 import { generateScript } from "./script-generator";
 import { generateAudio } from "./audio-generator";
+
+function getPersonaSourceLabels(expertise: string[]): string {
+  const labels = expertise.flatMap((cat) =>
+    (FEEDS_BY_CATEGORY[cat] ?? []).map((f) => f.label)
+  );
+  if (expertise.includes("tech")) labels.push("Hacker News", "Dev.to");
+  const unique = [...new Set(labels)];
+  return unique.length <= 4
+    ? unique.join(" · ")
+    : unique.slice(0, 4).join(" · ") + ` +${unique.length - 4}`;
+}
 
 export interface Env {
   OPENAI_API_KEY: string;
@@ -402,6 +414,7 @@ function serveUI(): Response {
     .persona-btn.selected { border-color: var(--accent); background: rgba(124, 106, 255, 0.15); }
     .persona-btn .name { font-weight: 600; font-size: 0.95rem; }
     .persona-btn .title { font-size: 0.75rem; color: var(--text-dim); margin-top: 2px; }
+    .persona-btn .sources { font-size: 0.65rem; color: var(--text-dim); margin-top: 5px; opacity: 0.7; line-height: 1.4; }
     .all-btn {
       background: linear-gradient(135deg, var(--accent), var(--accent2));
       border: none;
@@ -494,6 +507,7 @@ function serveUI(): Response {
           `<button class="persona-btn${id === "philosopher" ? " selected" : ""}" id="btn-${id}" onclick="selectPersona('${id}')">`
           + `<div class="name">${p.name}</div>`
           + `<div class="title">${p.title}</div>`
+          + `<div class="sources">📡 ${getPersonaSourceLabels(p.expertise)}</div>`
           + `</button>`
         ).join("")}
       </div>
