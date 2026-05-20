@@ -56,6 +56,48 @@ class NewsCollector:
         self.news_cfg = settings.get("news", {})
         self.max_topics = settings.get("podcast", {}).get("max_topics", 25)
 
+    def collect_for_persona(self, persona_cfg: dict) -> List[NewsItem]:
+        """キャスターの expertise に合わせた専用ソースからニュースを収集する。"""
+        expertise = persona_cfg.get("expertise", [])
+        items: List[NewsItem] = []
+        days_back = self.news_cfg.get("days_back", 7)
+
+        # expertise に合致するカテゴリのフィードのみ取得
+        for feed_cfg in self.news_cfg.get("rss_feeds", []):
+            if feed_cfg.get("category") not in expertise:
+                continue
+            try:
+                fetched = self._fetch_rss(feed_cfg)
+                items.extend(fetched)
+                logger.info(f"RSS [{feed_cfg.get('label')}]: {len(fetched)} 件取得")
+            except Exception as e:
+                logger.warning(f"RSS 取得失敗 [{feed_cfg.get('label')}]: {e}")
+
+        # tech カテゴリのキャスターには Hacker News + Dev.to を追加
+        if "tech" in expertise:
+            if self.news_cfg.get("use_hackernews", True):
+                try:
+                    hn = self._fetch_hackernews()
+                    items.extend(hn)
+                    logger.info(f"Hacker News: {len(hn)} 件取得")
+                except Exception as e:
+                    logger.warning(f"Hacker News 取得失敗: {e}")
+
+            if self.news_cfg.get("use_devto", True):
+                try:
+                    devto = self._fetch_devto()
+                    items.extend(devto)
+                    logger.info(f"Dev.to: {len(devto)} 件取得")
+                except Exception as e:
+                    logger.warning(f"Dev.to 取得失敗: {e}")
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
+        items = [i for i in items if i.published_at >= cutoff]
+        items = self._deduplicate(items)
+        items.sort(key=lambda x: x.published_at, reverse=True)
+        logger.info(f"[{persona_cfg.get('name', '?')}] 合計 {len(items)} 件（上限 {self.max_topics} 件）")
+        return items[: self.max_topics]
+
     def collect(self) -> List[NewsItem]:
         """全ソースからニュースを収集し、重複除去・時系列ソートして返す"""
         items: List[NewsItem] = []
@@ -158,6 +200,34 @@ class NewsCollector:
                 pass
 
         return items
+
+    def _fetch_devto(self) -> List[NewsItem]:
+        resp = requests.get(
+            "https://dev.to/api/articles?top=7&per_page=20",
+            headers={"User-Agent": "PodcastBot/1.0"},
+            timeout=8,
+        )
+        articles = resp.json()
+        items = []
+        for a in articles:
+            published_at = datetime.now(timezone.utc)
+            if a.get("published_at"):
+                try:
+                    published_at = datetime.fromisoformat(a["published_at"].replace("Z", "+00:00"))
+                except Exception:
+                    pass
+            items.append(
+                NewsItem(
+                    title=a.get("title", "").strip(),
+                    description=(a.get("description") or "")[:400],
+                    url=a.get("url", ""),
+                    source="Dev.to",
+                    published_at=published_at,
+                    category="tech",
+                    language="en",
+                )
+            )
+        return [i for i in items if i.title]
 
     def _parse_date(self, entry) -> datetime:
         if hasattr(entry, "published_parsed") and entry.published_parsed:

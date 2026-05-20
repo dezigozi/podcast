@@ -101,7 +101,7 @@ def generate_task(job_id: str, persona_id: str):
 
         _update_job(job_id, status="collecting")
         collector = NewsCollector(settings)
-        items = collector.collect()
+        items = collector.collect_for_persona(persona)
 
         _update_job(job_id, status="generating_script")
         generator = ScriptGenerator(settings, personas)
@@ -132,11 +132,17 @@ def index():
 
 @app.route("/api/personas")
 def personas():
-    _, personas_cfg = load_config()
-    result = [
-        {"id": k, "name": v["name"], "title": v["title"]}
-        for k, v in personas_cfg.items()
-    ]
+    settings, personas_cfg = load_config()
+    feeds = settings.get("news", {}).get("rss_feeds", [])
+    result = []
+    for k, v in personas_cfg.items():
+        expertise = v.get("expertise", [])
+        labels = [f["label"] for f in feeds if f.get("category") in expertise]
+        if "tech" in expertise:
+            labels += ["Hacker News", "Dev.to"]
+        unique = list(dict.fromkeys(labels))  # 順序を保ちつつ重複除去
+        sources = " · ".join(unique[:4]) + (f" +{len(unique)-4}" if len(unique) > 4 else "")
+        result.append({"id": k, "name": v["name"], "title": v["title"], "sources": sources})
     return jsonify(result)
 
 

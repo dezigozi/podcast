@@ -2,31 +2,68 @@ podcast:
   title: "知のわんこそば"
   description: "毎週、世の中のホットトピックスをAIが解説するポッドキャスト。中道・革新・保守・テック・哲学、5人のAIキャスターがそれぞれの視点で語る。"
   language: "ja"
-  max_topics: 25  # 収集するニュースの最大件数
+  max_topics: 25  # キャスター1人あたりの最大記事数
 
 news:
-  days_back: 7     # 何日前までのニュースを収集するか
+  days_back: 7
   use_hackernews: true
-  hackernews_stories: 30  # HNから取得するストーリー数
+  use_devto: true           # Dev.to API（tech カテゴリのキャスター向け、APIキー不要）
+  hackernews_stories: 20
 
   rss_feeds:
-    # 日本語ニュース
+    # 日本
     - url: "https://www3.nhk.or.jp/rss/news/cat0.xml"
       category: "japan"
       language: "ja"
       label: "NHK ニュース"
 
+    - url: "https://www.japantimes.co.jp/feed/"
+      category: "japan"
+      language: "en"
+      label: "Japan Times"
+
+    - url: "https://english.kyodonews.net/rss/all.xml"
+      category: "japan"
+      language: "en"
+      label: "共同通信（英語）"
+
+    - url: "https://asia.nikkei.com/rss/feed/nar"
+      category: "japan"
+      language: "en"
+      label: "Nikkei Asia"
+
+    # 国際
     - url: "https://feeds.bbci.co.uk/japanese/rss.xml"
       category: "international"
       language: "ja"
       label: "BBC News Japan"
 
-    # 英語テクノロジー
-    - url: "https://news.ycombinator.com/rss"
-      category: "tech"
+    - url: "https://feeds.reuters.com/reuters/topNews"
+      category: "international"
       language: "en"
-      label: "Hacker News"
+      label: "Reuters Top News"
 
+    - url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
+      category: "international"
+      language: "en"
+      label: "NYT World"
+
+    - url: "https://www.aljazeera.com/xml/rss/all.xml"
+      category: "international"
+      language: "en"
+      label: "Al Jazeera"
+
+    - url: "https://www.theguardian.com/world/rss"
+      category: "international"
+      language: "en"
+      label: "The Guardian World"
+
+    - url: "https://foreignpolicy.com/feed/"
+      category: "international"
+      language: "en"
+      label: "Foreign Policy"
+
+    # テクノロジー
     - url: "https://www.technologyreview.com/feed/"
       category: "tech"
       language: "en"
@@ -37,21 +74,30 @@ news:
       language: "en"
       label: "WIRED"
 
-    # 英語国際ニュース
-    - url: "https://feeds.reuters.com/reuters/topNews"
-      category: "international"
-      language: "en"
-      label: "Reuters Top News"
-
     - url: "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"
       category: "tech"
       language: "en"
       label: "NYT Technology"
 
-    - url: "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"
-      category: "international"
+    - url: "https://feeds.arstechnica.com/arstechnica/index"
+      category: "tech"
       language: "en"
-      label: "NYT World"
+      label: "Ars Technica"
+
+    - url: "https://techcrunch.com/feed/"
+      category: "tech"
+      language: "en"
+      label: "TechCrunch"
+
+    - url: "https://www.theverge.com/rss/index.xml"
+      category: "tech"
+      language: "en"
+      label: "The Verge"
+
+    - url: "https://feeds.feedburner.com/venturebeat/SZYF"
+      category: "tech"
+      language: "en"
+      label: "VentureBeat"
 
     # 科学・学術
     - url: "https://www.nature.com/nature.rss"
@@ -64,11 +110,26 @@ news:
       language: "en"
       label: "Science Daily"
 
+    - url: "https://phys.org/rss-feed/"
+      category: "science"
+      language: "en"
+      label: "Phys.org"
+
+    - url: "http://export.arxiv.org/rss/cs.AI"
+      category: "science"
+      language: "en"
+      label: "arXiv AI"
+
+    - url: "http://export.arxiv.org/rss/cs.LG"
+      category: "science"
+      language: "en"
+      label: "arXiv ML"
+
 llm:
   model: "gpt-4o"
   max_tokens: 4096
-  temperature: 0.85  # 少し高めで創造性を引き出す
+  temperature: 0.85
 
 tts:
   model: "tts-1"
-  speed: 1.0  # 1.0 = 通常速度、1.1-1.2 にするとやや速め
+  speed: 1.0
