@@ -22,6 +22,7 @@ personas:
     voice: "alloy"
     signature_move: "対立する二項を提示した後、その共通の根っこにある問いを掘り下げる"
     expertise: ["japan", "international"]
+    feeds: ["NHK ニュース", "Reuters Top News", "NYT World", "BBC News Japan"]
 
   progressive:
     name: "サラ・ミラー"
@@ -45,6 +46,7 @@ personas:
     voice: "nova"
     signature_move: "マクロの経済・政治データを、特定の個人の生活体験に落とし込んで語る"
     expertise: ["japan", "science"]
+    feeds: ["共同通信（英語）", "The Guardian World", "Science Daily", "Phys.org"]
 
   conservative:
     name: "ジェームズ・タッカー"
@@ -68,6 +70,7 @@ personas:
     voice: "onyx"
     signature_move: "現代の問題を過去の歴史的失敗・成功事例と対照させて論じる"
     expertise: ["japan", "international"]
+    feeds: ["Japan Times", "Nikkei Asia", "Foreign Policy", "NYT Technology"]
 
   tech_optimist:
     name: "ライアン・チェン"
@@ -92,6 +95,7 @@ personas:
     voice: "echo"
     signature_move: "現在のニュースをムーアの法則・指数関数的変化のレンズで解釈し、10年後の姿を描く"
     expertise: ["tech", "science"]
+    feeds: ["MIT Technology Review", "TechCrunch", "Ars Technica", "The Verge", "arXiv ML", "Hacker News", "Dev.to"]
 
   philosopher:
     name: "オリビア・スミス"
@@ -118,3 +122,4 @@ personas:
     voice: "shimmer"
     signature_move: "ニュースの本質を古代哲学・思考実験・文明史の問いに変換し、意外なつながりを発見させる"
     expertise: ["international", "science"]
+    feeds: ["Al Jazeera", "WIRED", "Nature", "arXiv AI", "VentureBeat"]

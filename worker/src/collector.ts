@@ -1,6 +1,6 @@
 // ニュース収集モジュール — src/collector.py をTypeScriptに移植
 
-import { RSS_FEEDS, FEEDS_BY_CATEGORY, PODCAST_CONFIG, CATEGORY_LABELS, type RssFeed } from "./rss-feeds";
+import { RSS_FEEDS, PODCAST_CONFIG, CATEGORY_LABELS, type RssFeed } from "./rss-feeds";
 import type { Persona } from "./personas";
 
 export interface NewsItem {
@@ -249,11 +249,10 @@ async function fetchDevToArticles(): Promise<NewsItem[]> {
 export async function fetchNewsForPersona(persona: Persona): Promise<NewsItem[]> {
   const cutoff = new Date(Date.now() - PODCAST_CONFIG.daysBack * 24 * 60 * 60 * 1000);
   const items: NewsItem[] = [];
+  const assignedFeeds = persona.feeds;
 
-  // expertise に合致するカテゴリのフィードのみ取得
-  const targetFeeds: RssFeed[] = persona.expertise.flatMap(
-    (cat) => FEEDS_BY_CATEGORY[cat] ?? []
-  );
+  // キャスター専用フィードのみ取得（label で照合）
+  const targetFeeds = RSS_FEEDS.filter((f) => assignedFeeds.includes(f.label));
 
   const rssResults = await Promise.allSettled(
     targetFeeds.map((feed) => fetchRss(feed))
@@ -262,13 +261,14 @@ export async function fetchNewsForPersona(persona: Persona): Promise<NewsItem[]>
     if (result.status === "fulfilled") items.push(...result.value);
   }
 
-  // tech カテゴリのキャスターには Hacker News + Dev.to を追加
-  if (persona.expertise.includes("tech")) {
+  if (assignedFeeds.includes("Hacker News")) {
     try {
       const hnItems = await fetchHackerNews(PODCAST_CONFIG.hackernewsStories);
       items.push(...hnItems);
     } catch { /* HN取得失敗は無視 */ }
+  }
 
+  if (assignedFeeds.includes("Dev.to")) {
     const devToItems = await fetchDevToArticles();
     items.push(...devToItems);
   }

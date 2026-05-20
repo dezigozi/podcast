@@ -136,12 +136,8 @@ def personas():
     feeds = settings.get("news", {}).get("rss_feeds", [])
     result = []
     for k, v in personas_cfg.items():
-        expertise = v.get("expertise", [])
-        labels = [f["label"] for f in feeds if f.get("category") in expertise]
-        if "tech" in expertise:
-            labels += ["Hacker News", "Dev.to"]
-        unique = list(dict.fromkeys(labels))  # 順序を保ちつつ重複除去
-        sources = " · ".join(unique[:4]) + (f" +{len(unique)-4}" if len(unique) > 4 else "")
+        assigned = v.get("feeds", [])
+        sources = " · ".join(assigned[:4]) + (f" +{len(assigned)-4}" if len(assigned) > 4 else "")
         result.append({"id": k, "name": v["name"], "title": v["title"], "sources": sources})
     return jsonify(result)
 

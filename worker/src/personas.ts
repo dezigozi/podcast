@@ -9,7 +9,8 @@ export interface Persona {
   catchphrase: string;
   voice: string;
   signature_move: string;
-  expertise: string[]; // 得意なカテゴリ（複数指定可能）
+  expertise: string[];
+  feeds: string[]; // 専用ニュースソース（他キャスターと被らない固定割当）
 }
 
 export const PERSONAS: Record<string, Persona> = {
@@ -31,7 +32,8 @@ export const PERSONAS: Record<string, Persona> = {
     catchphrase: "「情報は羅針盤。あとは皆さん自身が進む方向を決めてください」",
     voice: "alloy",
     signature_move: "対立する二項を提示した後、その共通の根っこにある問いを掘り下げる",
-    expertise: ["japan", "international"], // バランスの取れた視点で国内外のニュースを扱う
+    expertise: ["japan", "international"],
+    feeds: ["NHK ニュース", "Reuters Top News", "NYT World", "BBC News Japan"],
   },
 
   progressive: {
@@ -52,7 +54,8 @@ export const PERSONAS: Record<string, Persona> = {
     catchphrase: "「変化は怖くない。変わらないことの方が、もっと怖い」",
     voice: "nova",
     signature_move: "マクロの経済・政治データを、特定の個人の生活体験に落とし込んで語る",
-    expertise: ["japan", "science"], // 社会問題・環境・気候変動を重視
+    expertise: ["japan", "science"],
+    feeds: ["共同通信（英語）", "The Guardian World", "Science Daily", "Phys.org"],
   },
 
   conservative: {
@@ -73,7 +76,8 @@ export const PERSONAS: Record<string, Persona> = {
     catchphrase: "「歴史の教訓を忘れた民族に、未来はない」",
     voice: "onyx",
     signature_move: "現代の問題を過去の歴史的失敗・成功事例と対照させて論じる",
-    expertise: ["japan", "international"], // 政策・安全保障・国防を重視
+    expertise: ["japan", "international"],
+    feeds: ["Japan Times", "Nikkei Asia", "Foreign Policy", "NYT Technology"],
   },
 
   tech_optimist: {
@@ -95,7 +99,8 @@ AIや新技術が医療・気候・貧困・教育の問題を解決すると信
     catchphrase: "「これ、10年後には教科書に載りますよ。今がその瞬間です！」",
     voice: "echo",
     signature_move: "現在のニュースをムーアの法則・指数関数的変化のレンズで解釈し、10年後の姿を描く",
-    expertise: ["tech", "science"], // テクノロジーと科学を深掘り
+    expertise: ["tech", "science"],
+    feeds: ["MIT Technology Review", "TechCrunch", "Ars Technica", "The Verge", "arXiv ML", "Hacker News", "Dev.to"],
   },
 
   philosopher: {
@@ -119,7 +124,8 @@ AIや新技術が医療・気候・貧困・教育の問題を解決すると信
     catchphrase: "「現代の出来事は、すべて過去のどこかで起きたことの繰り返しです。ただし、少しだけ違う形で」",
     voice: "shimmer",
     signature_move: "ニュースの本質を古代哲学・思考実験・文明史の問いに変換し、意外なつながりを発見させる",
-    expertise: ["international", "science"], // 世界的な動きと科学的問い、文明的転換点を扱う
+    expertise: ["international", "science"],
+    feeds: ["Al Jazeera", "WIRED", "Nature", "arXiv AI", "VentureBeat"],
   },
 };
 

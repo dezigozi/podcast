@@ -3,19 +3,13 @@
 
 import { PERSONAS, PERSONA_IDS } from "./personas";
 import { fetchNewsForPersona, buildNewsPromptForPersona } from "./collector";
-import { FEEDS_BY_CATEGORY } from "./rss-feeds";
 import { generateScript } from "./script-generator";
 import { generateAudio } from "./audio-generator";
 
-function getPersonaSourceLabels(expertise: string[]): string {
-  const labels = expertise.flatMap((cat) =>
-    (FEEDS_BY_CATEGORY[cat] ?? []).map((f) => f.label)
-  );
-  if (expertise.includes("tech")) labels.push("Hacker News", "Dev.to");
-  const unique = [...new Set(labels)];
-  return unique.length <= 4
-    ? unique.join(" · ")
-    : unique.slice(0, 4).join(" · ") + ` +${unique.length - 4}`;
+function getPersonaSourceLabels(feeds: string[]): string {
+  return feeds.length <= 4
+    ? feeds.join(" · ")
+    : feeds.slice(0, 4).join(" · ") + ` +${feeds.length - 4}`;
 }
 
 export interface Env {
@@ -507,7 +501,7 @@ function serveUI(): Response {
           `<button class="persona-btn${id === "philosopher" ? " selected" : ""}" id="btn-${id}" onclick="selectPersona('${id}')">`
           + `<div class="name">${p.name}</div>`
           + `<div class="title">${p.title}</div>`
-          + `<div class="sources">📡 ${getPersonaSourceLabels(p.expertise)}</div>`
+          + `<div class="sources">📡 ${getPersonaSourceLabels(p.feeds)}</div>`
           + `</button>`
         ).join("")}
       </div>

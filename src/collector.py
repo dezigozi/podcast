@@ -57,14 +57,13 @@ class NewsCollector:
         self.max_topics = settings.get("podcast", {}).get("max_topics", 25)
 
     def collect_for_persona(self, persona_cfg: dict) -> List[NewsItem]:
-        """キャスターの expertise に合わせた専用ソースからニュースを収集する。"""
-        expertise = persona_cfg.get("expertise", [])
+        """キャスター専用フィードリストからニュースを収集する。フィード被りゼロ設計。"""
+        assigned_feeds = persona_cfg.get("feeds", [])
         items: List[NewsItem] = []
         days_back = self.news_cfg.get("days_back", 7)
 
-        # expertise に合致するカテゴリのフィードのみ取得
         for feed_cfg in self.news_cfg.get("rss_feeds", []):
-            if feed_cfg.get("category") not in expertise:
+            if feed_cfg.get("label") not in assigned_feeds:
                 continue
             try:
                 fetched = self._fetch_rss(feed_cfg)
@@ -73,23 +72,21 @@ class NewsCollector:
             except Exception as e:
                 logger.warning(f"RSS 取得失敗 [{feed_cfg.get('label')}]: {e}")
 
-        # tech カテゴリのキャスターには Hacker News + Dev.to を追加
-        if "tech" in expertise:
-            if self.news_cfg.get("use_hackernews", True):
-                try:
-                    hn = self._fetch_hackernews()
-                    items.extend(hn)
-                    logger.info(f"Hacker News: {len(hn)} 件取得")
-                except Exception as e:
-                    logger.warning(f"Hacker News 取得失敗: {e}")
+        if "Hacker News" in assigned_feeds and self.news_cfg.get("use_hackernews", True):
+            try:
+                hn = self._fetch_hackernews()
+                items.extend(hn)
+                logger.info(f"Hacker News: {len(hn)} 件取得")
+            except Exception as e:
+                logger.warning(f"Hacker News 取得失敗: {e}")
 
-            if self.news_cfg.get("use_devto", True):
-                try:
-                    devto = self._fetch_devto()
-                    items.extend(devto)
-                    logger.info(f"Dev.to: {len(devto)} 件取得")
-                except Exception as e:
-                    logger.warning(f"Dev.to 取得失敗: {e}")
+        if "Dev.to" in assigned_feeds and self.news_cfg.get("use_devto", True):
+            try:
+                devto = self._fetch_devto()
+                items.extend(devto)
+                logger.info(f"Dev.to: {len(devto)} 件取得")
+            except Exception as e:
+                logger.warning(f"Dev.to 取得失敗: {e}")
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
         items = [i for i in items if i.published_at >= cutoff]
