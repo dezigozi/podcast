@@ -2,7 +2,7 @@
 // Queueの代わりに ctx.waitUntil() でバックグラウンド生成を実行
 
 import { PERSONAS, PERSONA_IDS } from "./personas";
-import { collectNews, buildNewsPromptForPersona } from "./collector";
+import { fetchNewsForPersona, buildNewsPromptForPersona } from "./collector";
 import { generateScript } from "./script-generator";
 import { generateAudio } from "./audio-generator";
 
@@ -109,8 +109,6 @@ async function processJob(job: GenerateJob, env: Env): Promise<void> {
   await env.PODCAST_KV.put(`job:${job.jobId}`, JSON.stringify(runningStatus), { expirationTtl: 86400 * 3 });
 
   try {
-    const newsItems = await collectNews();
-
     const personaIds = job.persona === "all" ? [...PERSONA_IDS] : [job.persona];
     const results: NonNullable<JobStatus["results"]> = [];
 
@@ -119,7 +117,8 @@ async function processJob(job: GenerateJob, env: Env): Promise<void> {
       if (!persona) continue;
 
       try {
-        // 各キャスターの得意分野に応じたニュースプロンプトを生成
+        // キャスターの expertise に合わせた専用ソースからニュースを取得
+        const newsItems = await fetchNewsForPersona(persona);
         const newsPrompt = buildNewsPromptForPersona(newsItems, persona.expertise);
 
         const script = await generateScript(newsPrompt, persona, env.OPENAI_API_KEY);

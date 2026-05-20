@@ -1,6 +1,7 @@
 // ニュース収集モジュール — src/collector.py をTypeScriptに移植
 
-import { RSS_FEEDS, PODCAST_CONFIG, CATEGORY_LABELS, type RssFeed } from "./rss-feeds";
+import { RSS_FEEDS, FEEDS_BY_CATEGORY, PODCAST_CONFIG, CATEGORY_LABELS, type RssFeed } from "./rss-feeds";
+import type { Persona } from "./personas";
 
 export interface NewsItem {
   title: string;
@@ -209,6 +210,73 @@ function deduplicate(items: NewsItem[]): NewsItem[] {
     seen.add(key);
     return true;
   });
+}
+
+interface DevToArticle {
+  title: string;
+  url: string;
+  description: string;
+  published_at: string;
+}
+
+// Dev.to API からテック記事を取得（APIキー不要）
+async function fetchDevToArticles(): Promise<NewsItem[]> {
+  try {
+    const resp = await fetch("https://dev.to/api/articles?top=7&per_page=20", {
+      headers: { "User-Agent": "PodcastBot/1.0" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!resp.ok) return [];
+    const articles: DevToArticle[] = await resp.json();
+    return articles.map((a) => ({
+      title: a.title,
+      description: (a.description ?? "").slice(0, 400),
+      url: a.url,
+      source: "Dev.to",
+      publishedAt: a.published_at ? new Date(a.published_at) : new Date(),
+      category: "tech",
+      language: "en",
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * キャスターの expertise に合わせた専用ニュースを取得する。
+ * 各キャスターが異なるソースから記事を取得するため、放送回ごとのトピック被りを防ぐ。
+ */
+export async function fetchNewsForPersona(persona: Persona): Promise<NewsItem[]> {
+  const cutoff = new Date(Date.now() - PODCAST_CONFIG.daysBack * 24 * 60 * 60 * 1000);
+  const items: NewsItem[] = [];
+
+  // expertise に合致するカテゴリのフィードのみ取得
+  const targetFeeds: RssFeed[] = persona.expertise.flatMap(
+    (cat) => FEEDS_BY_CATEGORY[cat] ?? []
+  );
+
+  const rssResults = await Promise.allSettled(
+    targetFeeds.map((feed) => fetchRss(feed))
+  );
+  for (const result of rssResults) {
+    if (result.status === "fulfilled") items.push(...result.value);
+  }
+
+  // tech カテゴリのキャスターには Hacker News + Dev.to を追加
+  if (persona.expertise.includes("tech")) {
+    try {
+      const hnItems = await fetchHackerNews(PODCAST_CONFIG.hackernewsStories);
+      items.push(...hnItems);
+    } catch { /* HN取得失敗は無視 */ }
+
+    const devToItems = await fetchDevToArticles();
+    items.push(...devToItems);
+  }
+
+  const recent = items.filter((i) => i.publishedAt >= cutoff);
+  const deduped = deduplicate(recent);
+  deduped.sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+  return deduped.slice(0, PODCAST_CONFIG.maxTopics);
 }
 
 export interface BuildNewsPromptOptions {
