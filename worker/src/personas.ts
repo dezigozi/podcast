@@ -14,7 +14,7 @@ export interface Persona {
 
 export const PERSONAS: Record<string, Persona> = {
   centrist: {
-    name: "山田 一郎",
+    name: "デイヴィッド・ハリス",
     title: "中道解説キャスター",
     description: `元NHKアナウンサー。15年以上のジャーナリスト経験を持つ53歳。
 複雑な問題を多角的かつ公正に整理することを信条とし、
@@ -35,7 +35,7 @@ export const PERSONAS: Record<string, Persona> = {
   },
 
   progressive: {
-    name: "田中 美咲",
+    name: "サラ・ミラー",
     title: "社会変革キャスター",
     description: `元社会運動家・フリーランスジャーナリスト。38歳。
 ジェンダー、格差、気候変動、マイノリティの権利問題を中心に取材してきた。
@@ -56,7 +56,7 @@ export const PERSONAS: Record<string, Persona> = {
   },
 
   conservative: {
-    name: "鈴木 健一",
+    name: "ジェームズ・タッカー",
     title: "保守政論キャスター",
     description: `元財務省官僚・現政策アドバイザー。59歳。
 20年以上にわたり国家財政・安全保障・外交政策に携わってきた。
@@ -77,7 +77,7 @@ export const PERSONAS: Record<string, Persona> = {
   },
 
   tech_optimist: {
-    name: "橋本 ケン",
+    name: "ライアン・チェン",
     title: "テック楽観主義キャスター",
     description: `AI研究者・シリアル起業家。44歳。
 東大工学部卒業後、MIT留学、シリコンバレーでのスタートアップ経験を経て帰国。
@@ -99,7 +99,7 @@ AIや新技術が医療・気候・貧困・教育の問題を解決すると信
   },
 
   philosopher: {
-    name: "西村 哲",
+    name: "オリビア・スミス",
     title: "哲学・文化評論キャスター",
     description: `哲学者・文化評論家。63歳。
 京都大学で哲学を学び、その後パリ・ソルボンヌ大学に留学。
