@@ -28,8 +28,11 @@ try:
 except ImportError:
     pass
 
-# TTS の1リクエストあたり最大文字数（余裕を持って3500文字）
-CHUNK_MAX_CHARS = 3500
+# TTS の1リクエストあたり最大文字数
+# Gemini TTS は長文で後半が早口/機械化する現象があるため、短めに分割して品質を均一に保つ。
+# OpenAI tts-1 は4096文字制限があり、長文でも品質劣化しないので3500文字でOK。
+CHUNK_MAX_CHARS_GEMINI = 1200
+CHUNK_MAX_CHARS_OPENAI = 3500
 
 
 class AudioGenerator:
@@ -49,13 +52,16 @@ class AudioGenerator:
         else:
             raise ValueError(f"未対応の provider です: {self.provider}")
 
-    def generate(self, script: str, voice: str, output_path: Path) -> Path:
-        """スクリプトを音声ファイルに変換して output_path に保存する"""
-        chunks = self._split_script(script)
+    def generate(self, script: str, voice: str, output_path: Path, style: str = "") -> Path:
+        """スクリプトを音声ファイルに変換して output_path に保存する。
+        style: Geminiに渡すトーン指示（例: "落ち着いた、信頼感のあるトーンで"）。OpenAIでは無視される。
+        """
+        chunk_max = CHUNK_MAX_CHARS_GEMINI if self.provider == "gemini" else CHUNK_MAX_CHARS_OPENAI
+        chunks = self._split_script(script, chunk_max)
         logger.info(f"音声生成: {len(chunks)} チャンク / provider={self.provider} / voice={voice}")
 
         if self.provider == "gemini":
-            audio_bytes = self._generate_gemini(chunks, voice)
+            audio_bytes = self._generate_gemini(chunks, voice, style)
         else:
             audio_bytes = self._generate_openai(chunks, voice)
 
@@ -71,16 +77,25 @@ class AudioGenerator:
     # Gemini TTS
     # ------------------------------------------------------------------
 
-    def _generate_gemini(self, chunks: List[str], voice: str) -> bytes:
-        """Gemini TTS で生成したPCMチャンクを連結し、MP3に変換して返す"""
+    def _generate_gemini(self, chunks: List[str], voice: str, style: str = "") -> bytes:
+        """Gemini TTS で生成したPCMチャンクを連結し、MP3に変換して返す。
+        style があれば各チャンクの冒頭にスタイル指示を埋め込み、後半の話速暴走を防ぐ。
+        """
         from google.genai import types
 
         model = self.tts_cfg.get("model", "gemini-2.5-flash-preview-tts")
 
+        # スタイル指示プレフィックス（毎チャンクの冒頭に注入してトーンを維持する）
+        if style:
+            prefix = f"次の文章を、{style}でゆっくり丁寧に読み上げてください：\n\n"
+        else:
+            prefix = "次の文章を、落ち着いた、信頼感のあるニュースキャスターのトーンで、ゆっくり丁寧に読み上げてください：\n\n"
+
         pcm_parts: List[bytes] = []
         for i, chunk in enumerate(chunks, 1):
             logger.info(f"  チャンク {i}/{len(chunks)} を変換中... ({len(chunk)} 文字)")
-            pcm_data = self._gemini_tts_one_chunk(model, chunk, voice, types)
+            input_text = prefix + chunk
+            pcm_data = self._gemini_tts_one_chunk(model, input_text, voice, types)
             pcm_parts.append(pcm_data)
 
         # PCMを連結してMP3に変換
@@ -164,9 +179,9 @@ class AudioGenerator:
     # スクリプト分割
     # ------------------------------------------------------------------
 
-    def _split_script(self, script: str) -> List[str]:
+    def _split_script(self, script: str, chunk_max: int) -> List[str]:
         """スクリプトを句点・改行で自然に分割してチャンクリストを返す"""
-        if len(script) <= CHUNK_MAX_CHARS:
+        if len(script) <= chunk_max:
             return [script]
 
         sentences = re.split(r"(?<=[。！？\n])", script)
@@ -176,7 +191,7 @@ class AudioGenerator:
         current = ""
 
         for sentence in sentences:
-            if len(current) + len(sentence) > CHUNK_MAX_CHARS and current:
+            if len(current) + len(sentence) > chunk_max and current:
                 chunks.append(current.strip())
                 current = sentence
             else:

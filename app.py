@@ -97,7 +97,11 @@ def load_config():
 
 # ── バックグラウンド生成タスク ────────────────────────────────────
 
-def generate_task(job_id: str, persona_id: str):
+def generate_task(job_id: str, persona_id: str, preassigned_items=None, exclusive: bool = False):
+    """個別生成または全員一斉生成のジョブ。
+    preassigned_items が指定されたら、その分担済みニュースを使う（被り防止）。
+    exclusive=True のとき、script_generator にも「他キャスターと被らないように」を伝える。
+    """
     try:
         from src.audio_generator import AudioGenerator
         from src.collector import NewsCollector
@@ -107,19 +111,23 @@ def generate_task(job_id: str, persona_id: str):
         persona = personas[persona_id]
 
         _update_job(job_id, status="collecting")
-        collector = NewsCollector(settings)
-        items = collector.collect_for_persona(persona)
+        if preassigned_items is not None:
+            items = preassigned_items
+        else:
+            collector = NewsCollector(settings)
+            items = collector.collect_for_persona(persona)
 
         _update_job(job_id, status="generating_script")
         generator = ScriptGenerator(settings, personas)
-        script = generator.generate(items, persona_id)
+        script = generator.generate(items, persona_id, exclusive_assignment=exclusive)
 
         _update_job(job_id, status="generating_audio")
         audio_path = AUDIO_DIR / f"{job_id}.mp3"
         audio_gen = AudioGenerator(settings)
         tts_provider = settings.get("tts", {}).get("provider", "gemini").lower()
         voice = persona["voices"][tts_provider]
-        audio_gen.generate(script, voice, audio_path)
+        style_hint = persona.get("style", "").replace("\n", " ").strip()
+        audio_gen.generate(script, voice, audio_path, style=style_hint)
 
         _update_job(job_id,
             status="done",
@@ -189,19 +197,48 @@ def generate():
 
 @app.route("/api/generate-all", methods=["POST"])
 def generate_all():
+    """全員一斉生成。ニュースを一度だけ収集→5キャスターで重複なく分担"""
+    from src.collector import NewsCollector, partition_news_among_personas
+
     settings, personas_cfg = load_config()
 
     err = _check_api_keys(settings)
     if err:
         return jsonify({"error": err}), 500
 
+    # 一度だけニュース収集して全キャスターに分担（重複防止）
+    collector = NewsCollector(settings)
+    selected = list(personas_cfg.keys())
+    all_items_by_persona = {}
+    try:
+        # ペルソナごとの専用ソースから取得（feeds設定があるなら活用）
+        for pid in selected:
+            all_items_by_persona[pid] = collector.collect_for_persona(personas_cfg[pid])
+        # まとめて重複排除＋5人で完全分割（URLレベルで重複排除）
+        seen_urls = set()
+        merged = []
+        for pid in selected:
+            for item in all_items_by_persona[pid]:
+                if item.url not in seen_urls:
+                    seen_urls.add(item.url)
+                    merged.append(item)
+        items_by_persona = partition_news_among_personas(merged, selected)
+    except Exception as e:
+        logger.exception("ニュース収集エラー: %s", e)
+        return jsonify({"error": f"ニュース収集に失敗しました: {e}"}), 500
+
     group_id = uuid.uuid4().hex
     job_ids = []
 
-    for persona_id in personas_cfg.keys():
+    for persona_id in selected:
         job_id = uuid.uuid4().hex
         _set_job(job_id, {"status": "collecting", "persona_id": persona_id})
-        t = threading.Thread(target=generate_task, args=(job_id, persona_id), daemon=True)
+        items = items_by_persona.get(persona_id, [])
+        t = threading.Thread(
+            target=generate_task,
+            args=(job_id, persona_id, items, True),  # preassigned_items + exclusive=True
+            daemon=True,
+        )
         t.start()
         job_ids.append(job_id)
 

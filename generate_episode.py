@@ -227,8 +227,9 @@ def main(persona: str, no_audio: bool, output_dir: str, list_personas: bool):
             audio_path = episode_dir / f"{persona_id}.mp3"
             tts_label = "Gemini TTS" if tts_provider == "gemini" else "OpenAI TTS"
             voice = p["voices"][tts_provider]
+            style_hint = p.get("style", "").replace("\n", " ").strip()
             with console.status(f"[green]音声を生成中（{tts_label}）...[/green]"):
-                audio_gen.generate(script, voice, audio_path)
+                audio_gen.generate(script, voice, audio_path, style=style_hint)
             audio_size = audio_path.stat().st_size
             console.print(
                 f"  🔊  音声ファイル: {audio_path.name}  ({audio_size / 1024 / 1024:.1f} MB)"
