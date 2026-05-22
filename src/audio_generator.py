@@ -29,9 +29,10 @@ except ImportError:
     pass
 
 # TTS の1リクエストあたり最大文字数
-# Gemini TTS は長文で後半が早口/機械化する現象があるため、短めに分割して品質を均一に保つ。
+# Gemini TTS は長文で後半が早口/機械化する現象があるため、500文字単位に細かく分割して
+# 毎チャンクの冒頭にスタイル指示を再注入し、トーンを最後まで均一に保つ。
 # OpenAI tts-1 は4096文字制限があり、長文でも品質劣化しないので3500文字でOK。
-CHUNK_MAX_CHARS_GEMINI = 1200
+CHUNK_MAX_CHARS_GEMINI = 500
 CHUNK_MAX_CHARS_OPENAI = 3500
 
 

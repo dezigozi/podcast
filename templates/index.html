@@ -175,8 +175,8 @@
   <div class="persona-grid" id="persona-grid"></div>
 
   <div class="btn-row">
-    <button class="generate-btn" id="gen-btn" disabled onclick="startGenerate()">キャスターを選択</button>
-    <button class="generate-all-btn" id="gen-all-btn" onclick="startGenerateAll()">🎙️ 全員生成</button>
+    <button class="generate-btn" id="select-all-btn" onclick="toggleSelectAll()">全員選択</button>
+    <button class="generate-all-btn" id="gen-btn" disabled onclick="startGenerate()">キャスターを選択</button>
   </div>
 
   <!-- 個別生成ステータス -->
@@ -204,8 +204,9 @@
 </div>
 
 <script>
-  let selectedPersona = null;
-  let pollingTimer = null;
+  // 複数選択モード: 選ばれたペルソナID群
+  const selectedSet = new Set();
+  let allPersonaIds = [];
   let groupPollingTimer = null;
 
   async function loadPersonas() {
@@ -213,12 +214,13 @@
       const res = await fetch('/api/personas');
       const personas = await res.json();
       const grid = document.getElementById('persona-grid');
+      allPersonaIds = personas.map(p => p.id);
       personas.forEach(p => {
         const btn = document.createElement('button');
         btn.className = 'persona-btn';
         btn.dataset.id = p.id;
         btn.innerHTML = `<div class="persona-name">${p.name}</div><div class="persona-title">${p.title}</div><div class="persona-sources">📡 ${p.sources || ''}</div>`;
-        btn.onclick = () => selectPersona(p.id, btn);
+        btn.onclick = () => togglePersona(p.id, btn);
         grid.appendChild(btn);
       });
     } catch (e) {
@@ -226,115 +228,79 @@
     }
   }
 
-  function selectPersona(id, btn) {
-    document.querySelectorAll('.persona-btn').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
-    selectedPersona = id;
-    const genBtn = document.getElementById('gen-btn');
-    genBtn.disabled = false;
-    genBtn.textContent = '生成する';
+  function togglePersona(id, btn) {
+    if (selectedSet.has(id)) {
+      selectedSet.delete(id);
+      btn.classList.remove('selected');
+    } else {
+      selectedSet.add(id);
+      btn.classList.add('selected');
+    }
+    updateGenButton();
   }
 
-  // ── 個別生成 ────────────────────────────────
+  function toggleSelectAll() {
+    const allSelected = selectedSet.size === allPersonaIds.length;
+    selectedSet.clear();
+    document.querySelectorAll('.persona-btn').forEach(b => b.classList.remove('selected'));
+    if (!allSelected) {
+      allPersonaIds.forEach(id => selectedSet.add(id));
+      document.querySelectorAll('.persona-btn').forEach(b => b.classList.add('selected'));
+    }
+    updateGenButton();
+  }
+
+  function updateGenButton() {
+    const genBtn = document.getElementById('gen-btn');
+    const selBtn = document.getElementById('select-all-btn');
+    const n = selectedSet.size;
+    if (n === 0) {
+      genBtn.disabled = true;
+      genBtn.textContent = 'キャスターを選択';
+    } else if (n === allPersonaIds.length) {
+      genBtn.disabled = false;
+      genBtn.textContent = `🎙️ 全員（${n}人）を生成`;
+    } else {
+      genBtn.disabled = false;
+      genBtn.textContent = `🎙️ ${n}人を生成`;
+    }
+    selBtn.textContent = (n === allPersonaIds.length) ? '選択クリア' : '全員選択';
+  }
+
+  // ── 生成（1人でも複数でも /api/generate-all を使い、結果は1mp3連結DL） ────
   async function startGenerate() {
-    if (!selectedPersona) return;
-    clearInterval(pollingTimer);
+    if (selectedSet.size === 0) return;
     clearInterval(groupPollingTimer);
     setGenerating(true);
-    hideGroupStatus();
     hideError();
+    document.getElementById('player-area').style.display = 'none';
 
+    const persona_ids = Array.from(selectedSet);
     try {
-      const res = await fetch('/api/generate', {
+      const res = await fetch('/api/generate-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ persona_id: selectedPersona }),
+        body: JSON.stringify({ persona_ids }),
       });
       const data = await res.json();
       if (!res.ok) { showError(data.error || '生成開始に失敗しました'); setGenerating(false); return; }
-      pollStatus(data.job_id);
+      pollGroupStatus(data.group_id, data.job_ids);
     } catch (e) {
       showError('サーバーへの接続に失敗しました。');
       setGenerating(false);
     }
   }
 
-  function pollStatus(job_id) {
-    pollingTimer = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/status/${job_id}`);
-        let data;
-        try { data = await res.json(); } catch (_) { throw new Error(`サーバーエラー HTTP ${res.status}`); }
-        if (res.status === 404) throw new Error('サーバーが再起動してジョブが消えました。もう一度生成してください。');
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-        document.getElementById('status-text').textContent = data.label || data.status;
-        if (data.status === 'done') {
-          clearInterval(pollingTimer);
-          showPlayer(job_id, data.persona_name);
-        } else if (data.status === 'error') {
-          clearInterval(pollingTimer);
-          showError(data.error || '生成中にエラーが発生しました');
-          setGenerating(false);
-        }
-      } catch (e) {
-        clearInterval(pollingTimer);
-        showError('エラー: ' + (e.message || 'ステータス確認に失敗しました'));
-        setGenerating(false);
-      }
-    }, 2000);
-  }
-
   function setGenerating(on) {
     const genBtn = document.getElementById('gen-btn');
-    const genAllBtn = document.getElementById('gen-all-btn');
-    const statusArea = document.getElementById('status-area');
-    document.getElementById('player-area').style.display = 'none';
+    const selBtn = document.getElementById('select-all-btn');
     document.querySelectorAll('.persona-btn').forEach(b => b.disabled = on);
-    genAllBtn.disabled = on;
+    selBtn.disabled = on;
     if (on) {
       genBtn.disabled = true;
       genBtn.textContent = '生成中...';
-      statusArea.style.display = 'block';
-      document.getElementById('status-text').textContent = '準備中...';
     } else {
-      genBtn.disabled = !selectedPersona;
-      genBtn.textContent = selectedPersona ? '生成する' : 'キャスターを選択';
-      statusArea.style.display = 'none';
-    }
-  }
-
-  function showPlayer(job_id, persona_name) {
-    setGenerating(false);
-    const playerArea = document.getElementById('player-area');
-    playerArea.style.display = 'block';
-    document.getElementById('player-label').textContent = `✅ ${persona_name} のエピソードが完成しました`;
-    const url = `/api/audio/${job_id}?t=${Date.now()}`;
-    const audio = document.getElementById('audio-player');
-    audio.src = url;
-    audio.play().catch(() => {});
-    const today = new Date().toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\//g, '');
-    const dl = document.getElementById('download-link');
-    dl.href = url;
-    dl.download = `わんこそば_${persona_name.replace(/\s/g, '').replace(/・/g, '')}_${today}.mp3`;
-  }
-
-  // ── 全員生成 ────────────────────────────────
-  async function startGenerateAll() {
-    clearInterval(pollingTimer);
-    clearInterval(groupPollingTimer);
-    hideError();
-    setAllGenerating(true);
-    document.getElementById('player-area').style.display = 'none';
-    document.getElementById('status-area').style.display = 'none';
-
-    try {
-      const res = await fetch('/api/generate-all', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) { showError(data.error || '生成開始に失敗しました'); setAllGenerating(false); return; }
-      pollGroupStatus(data.group_id, data.job_ids);
-    } catch (e) {
-      showError('サーバーへの接続に失敗しました。');
-      setAllGenerating(false);
+      updateGenButton();
     }
   }
 
@@ -376,36 +342,21 @@
 
         if (data.all_done) {
           clearInterval(groupPollingTimer);
-          setAllGenerating(false);
+          setGenerating(false);
           const zipLink = document.getElementById('download-zip-link');
           zipLink.href = `/api/download-all/${group_id}`;
           zipLink.style.display = 'block';
         } else if (data.any_error) {
           clearInterval(groupPollingTimer);
-          setAllGenerating(false);
+          setGenerating(false);
           showError('一部のキャスターの生成に失敗しました。');
         }
       } catch (e) {
         clearInterval(groupPollingTimer);
-        setAllGenerating(false);
+        setGenerating(false);
         showError('エラー: ' + (e.message || 'ステータス確認に失敗しました'));
       }
     }, 2000);
-  }
-
-  function setAllGenerating(on) {
-    const genBtn = document.getElementById('gen-btn');
-    const genAllBtn = document.getElementById('gen-all-btn');
-    document.querySelectorAll('.persona-btn').forEach(b => b.disabled = on);
-    genBtn.disabled = on || !selectedPersona;
-    genAllBtn.disabled = on;
-    genAllBtn.textContent = on ? '生成中...' : '🎙️ 全員生成';
-  }
-
-  function hideGroupStatus() {
-    document.getElementById('group-status-area').style.display = 'none';
-    document.getElementById('group-status-list').innerHTML = '';
-    document.getElementById('download-zip-link').style.display = 'none';
   }
 
   function showError(msg) {

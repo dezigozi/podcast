@@ -197,18 +197,28 @@ def generate():
 
 @app.route("/api/generate-all", methods=["POST"])
 def generate_all():
-    """全員一斉生成。ニュースを一度だけ収集→5キャスターで重複なく分担"""
+    """一括生成エンドポイント。persona_ids が指定されればその人だけ、なければ全員。
+    複数選択（1人〜5人）→ ニュースを一度だけ収集して選択者に重複なく分担"""
     from src.collector import NewsCollector, partition_news_among_personas
 
+    data = request.get_json(silent=True) or {}
+    requested_ids = data.get("persona_ids") or []
     settings, personas_cfg = load_config()
 
     err = _check_api_keys(settings)
     if err:
         return jsonify({"error": err}), 500
 
-    # 一度だけニュース収集して全キャスターに分担（重複防止）
+    # 指定された人だけ。空なら全員。
+    if requested_ids:
+        selected = [pid for pid in requested_ids if pid in personas_cfg]
+        if not selected:
+            return jsonify({"error": "有効なペルソナが指定されていません"}), 400
+    else:
+        selected = list(personas_cfg.keys())
+
+    # 一度だけニュース収集して選択キャスターに分担（重複防止）
     collector = NewsCollector(settings)
-    selected = list(personas_cfg.keys())
     all_items_by_persona = {}
     try:
         # ペルソナごとの専用ソースから取得（feeds設定があるなら活用）
