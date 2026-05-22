@@ -126,7 +126,8 @@ def generate_task(job_id: str, persona_id: str, preassigned_items=None, exclusiv
         audio_gen = AudioGenerator(settings)
         tts_provider = settings.get("tts", {}).get("provider", "gemini").lower()
         voice = persona["voices"][tts_provider]
-        style_hint = persona.get("style", "").replace("\n", " ").strip()
+        # tts_style があれば優先（読み上げ専用の固定指示）。無ければ style を流用。
+        style_hint = (persona.get("tts_style") or persona.get("style") or "").replace("\n", " ").strip()
         audio_gen.generate(script, voice, audio_path, style=style_hint)
 
         _update_job(job_id,

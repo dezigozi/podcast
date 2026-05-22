@@ -29,11 +29,11 @@ except ImportError:
     pass
 
 # TTS の1リクエストあたり最大文字数
-# Gemini TTS は長文で後半が早口/機械化する現象があるため、500文字単位に細かく分割して
-# 毎チャンクの冒頭にスタイル指示を再注入し、トーンを最後まで均一に保つ。
-# OpenAI tts-1 は4096文字制限があり、長文でも品質劣化しないので3500文字でOK。
-CHUNK_MAX_CHARS_GEMINI = 500
-CHUNK_MAX_CHARS_OPENAI = 3500
+# トーン揺れ・後半早口化を抑えるため、両プロバイダとも300文字単位に細かく分割し
+# 毎チャンクで同じスタイル指示を渡して、エピソード全体の声色を一定に保つ。
+# settings.yaml の tts.chunk_max_chars で上書き可能。
+CHUNK_MAX_CHARS_GEMINI = 300
+CHUNK_MAX_CHARS_OPENAI = 300
 
 
 class AudioGenerator:
@@ -55,16 +55,19 @@ class AudioGenerator:
 
     def generate(self, script: str, voice: str, output_path: Path, style: str = "") -> Path:
         """スクリプトを音声ファイルに変換して output_path に保存する。
-        style: Geminiに渡すトーン指示（例: "落ち着いた、信頼感のあるトーンで"）。OpenAIでは無視される。
+        style: 各チャンクで毎回固定で渡すトーン指示。
+               Gemini ではプレフィックスとして注入し、OpenAI gpt-4o-mini-tts では
+               instructions パラメータとして送信する。tts-1 では無視される。
         """
-        chunk_max = CHUNK_MAX_CHARS_GEMINI if self.provider == "gemini" else CHUNK_MAX_CHARS_OPENAI
+        chunk_default = CHUNK_MAX_CHARS_GEMINI if self.provider == "gemini" else CHUNK_MAX_CHARS_OPENAI
+        chunk_max = int(self.tts_cfg.get("chunk_max_chars", chunk_default))
         chunks = self._split_script(script, chunk_max)
-        logger.info(f"音声生成: {len(chunks)} チャンク / provider={self.provider} / voice={voice}")
+        logger.info(f"音声生成: {len(chunks)} チャンク / provider={self.provider} / voice={voice} / chunk_max={chunk_max}")
 
         if self.provider == "gemini":
             audio_bytes = self._generate_gemini(chunks, voice, style)
         else:
-            audio_bytes = self._generate_openai(chunks, voice)
+            audio_bytes = self._generate_openai(chunks, voice, style)
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "wb") as f:
@@ -159,19 +162,29 @@ class AudioGenerator:
     # OpenAI TTS
     # ------------------------------------------------------------------
 
-    def _generate_openai(self, chunks: List[str], voice: str) -> bytes:
+    def _generate_openai(self, chunks: List[str], voice: str, style: str = "") -> bytes:
+        """OpenAI TTS でMP3バイト列を返す。
+
+        style があり、かつ gpt-4o 系モデルを使う場合は instructions に渡す。
+        毎チャンク同じ文字列を渡すことで、チャンク間・再生成間のトーンを揃える。
+        tts-1 / tts-1-hd は instructions 未対応のため style は無視される。
+        """
         model = self.tts_cfg.get("openai_model", "tts-1")
         speed = float(self.tts_cfg.get("speed", 1.0))
+        supports_instructions = "gpt-4o" in model
 
         audio_parts: List[bytes] = []
         for i, chunk in enumerate(chunks, 1):
             logger.info(f"  チャンク {i}/{len(chunks)} を変換中... ({len(chunk)} 文字)")
-            response = self.client.audio.speech.create(
+            kwargs = dict(
                 model=model,
                 voice=voice,
                 input=chunk,
                 speed=speed,
             )
+            if style and supports_instructions:
+                kwargs["instructions"] = style
+            response = self.client.audio.speech.create(**kwargs)
             audio_parts.append(response.content)
 
         return b"".join(audio_parts)
@@ -181,11 +194,22 @@ class AudioGenerator:
     # ------------------------------------------------------------------
 
     def _split_script(self, script: str, chunk_max: int) -> List[str]:
-        """スクリプトを句点・改行で自然に分割してチャンクリストを返す"""
+        """スクリプトを自然な区切りで chunk_max 以内に分割する。
+
+        1段目: 句点・感嘆符・疑問符・改行で分割。
+        2段目: それでも chunk_max を超える長文は読点でさらに分割する。
+               （chunk_max を300などに小さくすると句点だけでは切り切れないため）
+        """
         if len(script) <= chunk_max:
             return [script]
 
-        sentences = re.split(r"(?<=[。！？\n])", script)
+        primary = re.split(r"(?<=[。！？\n])", script)
+        sentences: List[str] = []
+        for s in primary:
+            if len(s) > chunk_max:
+                sentences.extend(re.split(r"(?<=、)", s))
+            else:
+                sentences.append(s)
         sentences = [s for s in sentences if s.strip()]
 
         chunks: List[str] = []
