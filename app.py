@@ -301,18 +301,11 @@ def download_all(group_id):
     if not audio_paths:
         return jsonify({"error": "完了済みの音声ファイルがありません"}), 404
 
-    # pydub で5つのmp3を連結（間に1秒の無音を挟む）
-    from pydub import AudioSegment
-    silence = AudioSegment.silent(duration=1000)
-    combined = AudioSegment.empty()
-    for i, path in enumerate(audio_paths):
-        seg = AudioSegment.from_file(str(path), format="mp3")
-        if i > 0:
-            combined += silence
-        combined += seg
-
+    # MP3 はフレーム単位で並べた構造のため、bytes をそのまま連結すれば再生可能。
+    # pydub の decode/encode を経由するとメモリを大きく消費するため、軽量な bytes 連結に切り替えた。
     buf = io.BytesIO()
-    combined.export(buf, format="mp3", bitrate="128k")
+    for path in audio_paths:
+        buf.write(path.read_bytes())
     buf.seek(0)
 
     return send_file(
