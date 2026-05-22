@@ -5,13 +5,20 @@ import os
 import sys
 import threading
 import uuid
-import zipfile
 from datetime import datetime
 from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_file
+
+# pydub に imageio-ffmpeg 同梱の ffmpeg バイナリを使わせる
+try:
+    import imageio_ffmpeg
+    from pydub import AudioSegment as _AS
+    _AS.converter = imageio_ffmpeg.get_ffmpeg_exe()
+except ImportError:
+    pass
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -32,8 +39,8 @@ AUDIO_DIR.mkdir(exist_ok=True)
 
 STATUS_LABELS = {
     "collecting": "📰 ニュース収集中...",
-    "generating_script": "✍️ スクリプト生成中（GPT-4o）...",
-    "generating_audio": "🔊 音声生成中（OpenAI TTS）...",
+    "generating_script": "✍️ スクリプト生成中（Gemini）...",
+    "generating_audio": "🔊 音声生成中（Gemini TTS）...",
     "done": "✅ 完了",
     "error": "エラー",
 }
@@ -110,7 +117,9 @@ def generate_task(job_id: str, persona_id: str):
         _update_job(job_id, status="generating_audio")
         audio_path = AUDIO_DIR / f"{job_id}.mp3"
         audio_gen = AudioGenerator(settings)
-        audio_gen.generate(script, persona["voice"], audio_path)
+        tts_provider = settings.get("tts", {}).get("provider", "gemini").lower()
+        voice = persona["voices"][tts_provider]
+        audio_gen.generate(script, voice, audio_path)
 
         _update_job(job_id,
             status="done",
@@ -142,17 +151,32 @@ def personas():
     return jsonify(result)
 
 
+def _check_api_keys(settings: dict) -> str | None:
+    """provider 設定に応じて必要なAPIキーをチェック、足りなければエラー文を返す"""
+    llm_provider = settings.get("llm", {}).get("provider", "gemini").lower()
+    tts_provider = settings.get("tts", {}).get("provider", "gemini").lower()
+    need_gemini = llm_provider == "gemini" or tts_provider == "gemini"
+    need_openai = llm_provider == "openai" or tts_provider == "openai"
+
+    if need_gemini and not os.getenv("GEMINI_API_KEY"):
+        return "GEMINI_API_KEY が設定されていません"
+    if need_openai and not os.getenv("OPENAI_API_KEY"):
+        return "OPENAI_API_KEY が設定されていません"
+    return None
+
+
 @app.route("/api/generate", methods=["POST"])
 def generate():
     data = request.get_json() or {}
     persona_id = data.get("persona_id", "")
-    _, personas_cfg = load_config()
+    settings, personas_cfg = load_config()
 
     if persona_id not in personas_cfg:
         return jsonify({"error": "不正なペルソナIDです"}), 400
 
-    if not os.getenv("OPENAI_API_KEY"):
-        return jsonify({"error": "OPENAI_API_KEY が設定されていません"}), 500
+    err = _check_api_keys(settings)
+    if err:
+        return jsonify({"error": err}), 500
 
     job_id = uuid.uuid4().hex
     _set_job(job_id, {"status": "collecting", "persona_id": persona_id})
@@ -165,10 +189,11 @@ def generate():
 
 @app.route("/api/generate-all", methods=["POST"])
 def generate_all():
-    _, personas_cfg = load_config()
+    settings, personas_cfg = load_config()
 
-    if not os.getenv("OPENAI_API_KEY"):
-        return jsonify({"error": "OPENAI_API_KEY が設定されていません"}), 500
+    err = _check_api_keys(settings)
+    if err:
+        return jsonify({"error": err}), 500
 
     group_id = uuid.uuid4().hex
     job_ids = []
@@ -210,26 +235,44 @@ def group_status(group_id):
 
 @app.route("/api/download-all/<group_id>")
 def download_all(group_id):
+    """5ペルソナ分のmp3を1つに連結してダウンロード"""
     group = _get_group(group_id)
     if not group:
         return jsonify({"error": "グループが見つかりません"}), 404
 
     today = datetime.now().strftime("%Y%m%d")
+
+    # 完了したジョブのmp3パスを集める（personas.yamlの並び順を維持するため、group内のjob_idsの順を使う）
+    audio_paths = []
+    for job_id in group["job_ids"]:
+        job = _get_job(job_id)
+        if job.get("status") == "done" and job.get("audio_path"):
+            p = Path(job["audio_path"])
+            if p.exists():
+                audio_paths.append(p)
+
+    if not audio_paths:
+        return jsonify({"error": "完了済みの音声ファイルがありません"}), 404
+
+    # pydub で5つのmp3を連結（間に1秒の無音を挟む）
+    from pydub import AudioSegment
+    silence = AudioSegment.silent(duration=1000)
+    combined = AudioSegment.empty()
+    for i, path in enumerate(audio_paths):
+        seg = AudioSegment.from_file(str(path), format="mp3")
+        if i > 0:
+            combined += silence
+        combined += seg
+
     buf = io.BytesIO()
-
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for job_id in group["job_ids"]:
-            job = _get_job(job_id)
-            if job.get("status") == "done" and job.get("audio_path"):
-                name = job.get("persona_name", job_id).replace(" ", "").replace("・", "")
-                zf.write(job["audio_path"], f"わんこそば_{name}_{today}.mp3")
-
+    combined.export(buf, format="mp3", bitrate="128k")
     buf.seek(0)
+
     return send_file(
         buf,
-        mimetype="application/zip",
+        mimetype="audio/mpeg",
         as_attachment=True,
-        download_name=f"わんこそば_全員_{today}.zip",
+        download_name=f"わんこそば_全員_{today}.mp3",
     )
 
 
@@ -262,5 +305,7 @@ def debug():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    # ローカル開発時のデフォルトポート。macOSのAirPlay Receiverが5000を占有するため8000を使う。
+    # Render.com 等の本番環境では環境変数 PORT が自動で渡される。
+    port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port, debug=False)

@@ -121,8 +121,17 @@ def main(persona: str, no_audio: bool, output_dir: str, list_personas: bool):
         console.print(t)
         return
 
-    # API キーチェック
-    if not os.getenv("OPENAI_API_KEY"):
+    # API キーチェック（provider設定に応じて）
+    llm_provider = settings.get("llm", {}).get("provider", "gemini").lower()
+    tts_provider = settings.get("tts", {}).get("provider", "gemini").lower()
+    need_gemini = llm_provider == "gemini" or tts_provider == "gemini"
+    need_openai = llm_provider == "openai" or tts_provider == "openai"
+
+    if need_gemini and not os.getenv("GEMINI_API_KEY"):
+        console.print("[bold red]エラー: GEMINI_API_KEY が設定されていません。[/bold red]")
+        console.print(".env ファイルに GEMINI_API_KEY を設定してください。")
+        sys.exit(1)
+    if need_openai and not os.getenv("OPENAI_API_KEY"):
         console.print("[bold red]エラー: OPENAI_API_KEY が設定されていません。[/bold red]")
         console.print(".env ファイルに OPENAI_API_KEY を設定してください。")
         sys.exit(1)
@@ -216,8 +225,10 @@ def main(persona: str, no_audio: bool, output_dir: str, list_personas: bool):
         audio_size = 0
         if audio_gen is not None:
             audio_path = episode_dir / f"{persona_id}.mp3"
-            with console.status(f"[green]音声を生成中（OpenAI TTS）...[/green]"):
-                audio_gen.generate(script, p["voice"], audio_path)
+            tts_label = "Gemini TTS" if tts_provider == "gemini" else "OpenAI TTS"
+            voice = p["voices"][tts_provider]
+            with console.status(f"[green]音声を生成中（{tts_label}）...[/green]"):
+                audio_gen.generate(script, voice, audio_path)
             audio_size = audio_path.stat().st_size
             console.print(
                 f"  🔊  音声ファイル: {audio_path.name}  ({audio_size / 1024 / 1024:.1f} MB)"

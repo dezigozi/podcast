@@ -1,3 +1,29 @@
+# ============================================================
+# プロバイダ切り替えガイド（重要・必読）
+# ============================================================
+#
+# このファイルの下の方に llm と tts のセクションがあります。
+# それぞれ provider を "openai" / "gemini" のどちらかにすることで
+# 使うサービスを切り替えられます。
+#
+# 【現在の状態】 Gemini 運用（無料枠＋Tier1課金、混雑時はretryで自動待機）
+#
+# 【OpenAIに切り替える方法】
+#   1. このファイル下方の llm.provider を "gemini" → "openai" に変更
+#   2. このファイル下方の tts.provider を "gemini" → "openai" に変更
+#   3. 保存（Cmd+S）して再実行
+#       python generate_episode.py -p centrist
+#
+# 【コスト目安】
+#   - OpenAI（gpt-4o + tts-1）: 月 約$2.70
+#   - Gemini（無料枠超過時のみ課金）: 月 約$0〜$0.14
+#
+# 【トラブル時の判断軸】
+#   - 503 high demand が連発する → 一時的に openai に戻す
+#   - 429 limit:0 が出る        → モデル名を変えるか課金プラン確認
+#   - 401/403 が出る            → APIキーを再確認
+# ============================================================
+
 podcast:
   title: "知のわんこそば"
   description: "毎週、世の中のホットトピックスをAIが解説するポッドキャスト。中道・革新・保守・テック・哲学、5人のAIキャスターがそれぞれの視点で語る。"
@@ -125,11 +151,29 @@ news:
       language: "en"
       label: "arXiv ML"
 
+# ────────────────────────────────────
+# 台本生成（LLM）
+# ────────────────────────────────────
+# ★切り替えるときはここ：provider の値を変える
+#   "openai" → 確実に動く（月$0.60）
+#   "gemini" → 無料運用狙い（混雑時は503エラーが出ることあり、コード側でretry実装済み）
 llm:
-  model: "gpt-4o"
-  max_tokens: 4096
-  temperature: 0.85
+  provider: "gemini"               # ★ ここを変えると切替（"gemini" / "openai"）
+  model: "gemini-2.5-flash"        # provider=gemini のときに使うモデル
+                                   #   候補: gemini-2.5-flash（高品質）/ gemini-2.5-flash-lite（軽量）
+  max_tokens: 4096                 # 約3000文字 = 約2000トークン + 余裕。
+                                   # Thinking はコード側で無効化済みのため、全て出力に使える。
+  temperature: 0.85                # 0.0=堅実、1.0=創造的（0.85で創造性寄り）
+  openai_model: "gpt-4o"           # provider=openai のときに使うモデル
 
+# ────────────────────────────────────
+# 音声生成（TTS）
+# ────────────────────────────────────
+# ★切り替えるときはここ：provider の値を変える
+#   "openai" → 確実に動く（月$2.10、合計$2.70）
+#   "gemini" → 無料運用狙い（品質は同等以上、混雑時は503エラーあり、retry実装済み）
 tts:
-  model: "tts-1"
-  speed: 1.0
+  provider: "gemini"                    # ★ ここを変えると切替（"gemini" / "openai"）
+  model: "gemini-2.5-flash-preview-tts" # provider=gemini のときに使うTTSモデル
+  speed: 1.0                            # 1.0=通常、1.1〜1.2=やや速め
+  openai_model: "tts-1"                 # provider=openai のときに使うモデル
