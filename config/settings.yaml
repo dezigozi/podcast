@@ -173,7 +173,7 @@ llm:
 #   "openai" → 確実に動く（月$2.10、合計$2.70）
 #   "gemini" → 無料運用狙い（品質は同等以上、混雑時は503エラーあり、retry実装済み）
 tts:
-  provider: "gemini"                    # ★ ここを変えると切替（"gemini" / "openai"）
+  provider: "openai"                    # ★ ここを変えると切替（"gemini" / "openai"）
   model: "gemini-2.5-flash-preview-tts" # provider=gemini のときに使うTTSモデル
   speed: 1.0                            # 1.0=通常、1.1〜1.2=やや速め
 
