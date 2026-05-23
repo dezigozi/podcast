@@ -176,4 +176,13 @@ tts:
   provider: "gemini"                    # ★ ここを変えると切替（"gemini" / "openai"）
   model: "gemini-2.5-flash-preview-tts" # provider=gemini のときに使うTTSモデル
   speed: 1.0                            # 1.0=通常、1.1〜1.2=やや速め
-  openai_model: "tts-1"                 # provider=openai のときに使うモデル
+
+  # provider=openai のときに使うモデル
+  #   "tts-1"            … 旧モデル。安価だが機械音っぽくトーンが揺れやすい
+  #   "tts-1-hd"         … 高音質版だが instructions は未対応
+  #   "gpt-4o-mini-tts"  … ★推奨。instructions で読み上げ方を固定でき、自然さ・一貫性が大幅向上
+  openai_model: "gpt-4o-mini-tts"
+
+  # TTS 1チャンクあたりの最大文字数（両プロバイダ共通）
+  # 小さくするほど後半の早口化・トーン揺れが抑えられる。300前後が目安。
+  chunk_max_chars: 300
