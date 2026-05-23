@@ -39,11 +39,30 @@ AUDIO_DIR.mkdir(exist_ok=True)
 
 STATUS_LABELS = {
     "collecting": "📰 ニュース収集中...",
-    "generating_script": "✍️ スクリプト生成中（Gemini）...",
-    "generating_audio": "🔊 音声生成中（Gemini TTS）...",
+    "generating_script": "✍️ スクリプト生成中...",
+    "generating_audio": "🔊 音声生成中...",
     "done": "✅ 完了",
     "error": "エラー",
 }
+
+
+def _provider_display_name(provider: str, kind: str) -> str:
+    """provider 値を UI 用の表示名に変換する。kind: "llm" / "tts" """
+    if provider == "openai":
+        return "OpenAI TTS" if kind == "tts" else "OpenAI"
+    return "Gemini TTS" if kind == "tts" else "Gemini"
+
+
+def _status_label(job: dict) -> str:
+    """ジョブのステータスと保存された provider 情報から動的に表示ラベルを返す"""
+    status = job.get("status", "")
+    if status == "generating_script":
+        name = _provider_display_name(job.get("llm_provider", "gemini"), "llm")
+        return f"✍️ スクリプト生成中（{name}）..."
+    if status == "generating_audio":
+        name = _provider_display_name(job.get("tts_provider", "gemini"), "tts")
+        return f"🔊 音声生成中（{name}）..."
+    return STATUS_LABELS.get(status, status)
 
 
 # ── ファイル I/O ヘルパー ─────────────────────────────────────────
@@ -109,6 +128,11 @@ def generate_task(job_id: str, persona_id: str, preassigned_items=None, exclusiv
 
         settings, personas = load_config()
         persona = personas[persona_id]
+
+        # UI のラベル表示で実際のプロバイダを反映させるため、ジョブに記録しておく
+        llm_provider = settings.get("llm", {}).get("provider", "gemini").lower()
+        tts_provider = settings.get("tts", {}).get("provider", "gemini").lower()
+        _update_job(job_id, llm_provider=llm_provider, tts_provider=tts_provider)
 
         _update_job(job_id, status="collecting")
         if preassigned_items is not None:
@@ -269,7 +293,7 @@ def group_status(group_id):
         statuses.append({
             "job_id": job_id,
             "status": job.get("status"),
-            "label": STATUS_LABELS.get(job.get("status", ""), ""),
+            "label": _status_label(job),
             "persona_name": job.get("persona_name", ""),
             "persona_id": job.get("persona_id", ""),
             "error": job.get("error"),
@@ -322,8 +346,7 @@ def status(job_id):
     job = _get_job(job_id)
     if not job:
         return jsonify({"error": "ジョブが見つかりません"}), 404
-    label = STATUS_LABELS.get(job.get("status", ""), job.get("status", ""))
-    return jsonify({**job, "label": label})
+    return jsonify({**job, "label": _status_label(job)})
 
 
 @app.route("/api/audio/<job_id>")
